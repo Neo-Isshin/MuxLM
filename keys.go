@@ -106,9 +106,8 @@ func promptKey(p *Provider, envName string, intl bool) (string, error) {
 	if val == "" {
 		return "", fmt.Errorf("已取消：未提供 %s", envName)
 	}
-	if promptYesNo("是否保存到 " + keysFile() + " 以便下次免输? [Y/n] ") {
-		saveKey(envName, val)
-	}
+	// 默认保存（keys.env，权限 600），下次免输——不再逐次询问，保持工具轻量。
+	saveKey(envName, val)
 	return val, nil
 }
 
@@ -159,16 +158,4 @@ func saveKey(envName, val string) {
 	} else {
 		fmt.Fprintf(os.Stderr, "⚠️  保存失败: %v\n", err)
 	}
-}
-
-// promptYesNo 询问 Y/n，默认 Y（回车=Y）。输入不回显。
-func promptYesNo(prompt string) bool {
-	fmt.Fprint(os.Stderr, prompt)
-	s, err := readHidden()
-	fmt.Fprintln(os.Stderr)
-	if err != nil {
-		return false
-	}
-	s = strings.ToLower(s)
-	return s == "" || s == "y" || s == "yes"
 }
