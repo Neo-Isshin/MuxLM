@@ -141,13 +141,20 @@ func run(cmd *exec.Cmd) error {
 
 // preview 打印将要执行的命令（--dry-run）。
 func preview(cli string, p *Provider, model string, skip, intl bool, pass []string) {
-	envName := p.keyEnv(intl)
-	keyStatus := "已设置"
-	if loadKeys()[envName] == "" {
-		keyStatus = "未设置(将交互输入)"
+	// key 来源描述：自定义别名是内联 key，其它走 env（按区域）
+	var keyDesc string
+	if p.Key != "" {
+		keyDesc = "key=内联(自定义别名)"
+	} else {
+		envName := p.keyEnv(intl)
+		status := "已设置"
+		if loadKeys()[envName] == "" {
+			status = "未设置(将交互输入)"
+		}
+		keyDesc = envName + "=" + status
 	}
-	fmt.Printf("【DRY-RUN】 %s | %s | model=%s | skip=%v | intl=%v | %s=%s\n",
-		cli, p.Name, model, skip, intl, envName, keyStatus)
+	fmt.Printf("【DRY-RUN】 %s | %s | model=%s | skip=%v | intl=%v | %s\n",
+		cli, p.Name, model, skip, intl, keyDesc)
 	switch cli {
 	case "claude":
 		args := []string{"--model", model}
@@ -155,7 +162,11 @@ func preview(cli string, p *Provider, model string, skip, intl bool, pass []stri
 			args = append(args, "--dangerously-skip-permissions")
 		}
 		args = append(args, pass...)
-		fmt.Printf("  env  ANTHROPIC_BASE_URL=%s  ANTHROPIC_AUTH_TOKEN=$%s\n", p.claudeURL(intl), p.keyEnv(intl))
+		tokenSrc := "$" + p.keyEnv(intl)
+		if p.Key != "" {
+			tokenSrc = "(内联)"
+		}
+		fmt.Printf("  env  ANTHROPIC_BASE_URL=%s  ANTHROPIC_AUTH_TOKEN=%s\n", p.claudeURL(intl), tokenSrc)
 		fmt.Printf("  run  claude %s\n", joinArgs(args))
 	case "codex":
 		var args []string

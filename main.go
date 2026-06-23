@@ -111,6 +111,17 @@ func main() {
 		return
 	}
 
+	if alias == "custom" {
+		if dryRun {
+			fmt.Fprint(os.Stderr, "（custom 需交互输入端点/model/key 后探测，--dry-run 不适用）\n")
+			return
+		}
+		if err := runCustom(cli, skip, passthrough); err != nil {
+			fail(err.Error())
+		}
+		return
+	}
+
 	idx := buildIndex()
 	r, ok := idx[alias]
 	if !ok {
@@ -166,11 +177,13 @@ func fail(msg string) {
 func printTable() {
 	fmt.Println()
 	fmt.Println("  " +
-		pad("别名", 8) + pad("版本别名", 26) + pad("厂商", 30) + pad("默认模型", 26) +
+		pad("别名", 8) + pad("版本别名", 26) + pad("厂商", 30) + pad("默认模型", 36) +
 		pad("claude", 7) + pad("codex", 7) + pad("opencode", 9) + "intl")
-	fmt.Println("  " + strings.Repeat("-", 114))
-	for i := range providers {
-		p := &providers[i]
+	fmt.Println("  " + strings.Repeat("-", 126))
+	all := append([]Provider{}, providers...)
+	all = append(all, loadCustomProfiles()...)
+	for i := range all {
+		p := &all[i]
 		var tags []string
 		var latest string
 		for _, m := range p.Models {
@@ -190,7 +203,7 @@ func printTable() {
 			intlMark = "--intl"
 		}
 		fmt.Println("  " +
-			pad(p.Alias, 8) + pad(tagStr, 26) + pad(p.Name, 30) + pad(latest, 26) +
+			pad(p.Alias, 8) + pad(tagStr, 26) + pad(p.Name, 30) + pad(latest, 36) +
 			pad(yes(p.supports("claude")), 7) + pad(yes(p.supports("codex")), 7) +
 			pad(yes(p.supports("opencode")), 9) + intlMark)
 	}

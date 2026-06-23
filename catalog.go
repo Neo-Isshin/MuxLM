@@ -19,6 +19,7 @@ type Provider struct {
 	ClaudeURLIntl string   // 海外 anthropic 端点（可选）
 	OpenAIURLIntl string   // 海外 openai 端点（可选）
 	KeyEnv        string   // 读取 key 的环境变量名
+	Key           string   // 内联 key（custom 自定义别名用；非空时 getKey 直接返回，不走 env）
 	CLI           []string // 支持的 CLI：claude / codex / opencode 的子集（由端点协议决定，无代理）
 	WireAPI       string   // codex 的 wire_api：chat(默认) / responses
 	Models        []Model
@@ -134,28 +135,27 @@ var providers = []Provider{
 		},
 	},
 	{
-		Alias:     "opus",
-		Name:      "Claude Opus (MiniMax 中转)",
-		ClaudeURL: "https://api.minimaxi.com/anthropic",
-		KeyEnv:    "MINIMAX_KEY",
-		CLI:       []string{"claude", "opencode"},
-		Models:    []Model{{ID: "claude-opus-4-6", Tag: "opus46", Latest: true}},
+		Alias:         "doubao",
+		Name:          "火山方舟 Doubao",
+		ClaudeURL:     "https://ark.cn-beijing.volces.com/api/compatible",
+		OpenAIURL:     "https://ark.cn-beijing.volces.com/api/v3",
+		ClaudeURLIntl: "https://ark.ap-southeast.bytepluses.com/api/compatible",
+		OpenAIURLIntl: "https://ark.ap-southeast.bytepluses.com/api/v3",
+		KeyEnv:        "ARK_API_KEY",
+		CLI:           []string{"claude", "codex", "opencode"},
+		Models: []Model{
+			{ID: "doubao-seed-2-0-code-preview-latest", Tag: "doubao", Latest: true},
+		},
 	},
 	{
-		Alias:     "sonnet",
-		Name:      "Claude Sonnet (MiniMax 中转)",
-		ClaudeURL: "https://api.minimaxi.com/anthropic",
-		KeyEnv:    "MINIMAX_KEY",
-		CLI:       []string{"claude", "opencode"},
-		Models:    []Model{{ID: "claude-sonnet-4-6", Tag: "sonnet46", Latest: true}},
-	},
-	{
-		Alias:     "haiku",
-		Name:      "Claude Haiku (MiniMax 中转)",
-		ClaudeURL: "https://api.minimaxi.com/anthropic",
-		KeyEnv:    "MINIMAX_KEY",
-		CLI:       []string{"claude", "opencode"},
-		Models:    []Model{{ID: "claude-haiku-4-5-20250514", Tag: "haiku45", Latest: true}},
+		Alias:     "nv",
+		Name:      "Nvidia NIM",
+		OpenAIURL: "https://integrate.api.nvidia.com/v1",
+		KeyEnv:    "NVIDIA_API_KEY",
+		CLI:       []string{"codex", "opencode"},
+		Models: []Model{
+			{ID: "meta/llama-3.1-405b-instruct", Tag: "nvl", Latest: true},
+		},
 	},
 	{
 		Alias:     "ds",
@@ -187,24 +187,28 @@ type Resolved struct {
 }
 
 // buildIndex 把所有别名（裸别名 + 每个 model 的 Tag）建索引。
-// 裸别名 → Latest 模型；Tag → 该版本模型。
+// 裸别名 → Latest 模型；Tag → 该版本模型。内置 providers + 用户自定义 custom 别名。
 func buildIndex() map[string]Resolved {
 	idx := make(map[string]Resolved)
-	for i := range providers {
-		p := &providers[i]
-		var latest *Model
-		for j := range p.Models {
-			m := &p.Models[j]
-			if m.Tag != "" {
-				idx[m.Tag] = Resolved{p, m}
+	add := func(ps []Provider) {
+		for i := range ps {
+			p := &ps[i]
+			var latest *Model
+			for j := range p.Models {
+				m := &p.Models[j]
+				if m.Tag != "" {
+					idx[m.Tag] = Resolved{p, m}
+				}
+				if m.Latest {
+					latest = m
+				}
 			}
-			if m.Latest {
-				latest = m
+			if latest != nil {
+				idx[p.Alias] = Resolved{p, latest}
 			}
-		}
-		if latest != nil {
-			idx[p.Alias] = Resolved{p, latest}
 		}
 	}
+	add(providers)
+	add(loadCustomProfiles())
 	return idx
 }

@@ -47,6 +47,9 @@ func loadKeys() map[string]string {
 //     再隐藏输入对应 key；否则直接输入国内 key。
 //   - 可选保存到 keys.env（按区域用对应 env 名）。
 func getKey(p *Provider, intl *bool) (string, error) {
+	if p.Key != "" {
+		return p.Key, nil // custom 自定义别名：内联 key，跳过 env/交互
+	}
 	keys := loadKeys()
 	cnEnv := p.KeyEnv
 	intlEnv := ""
@@ -126,9 +129,15 @@ func chooseIntl(p *Provider) bool {
 	return false
 }
 
-// readHidden 隐藏回显地读一行（term.ReadPassword）。
+// readHidden 隐藏回显地读一行。
+//   - TTY：用 term.ReadPassword 关回显（交互场景，key 不被看见）。
+//   - 非 TTY（管道/重定向）：回显本就无法控制，退化为读一行（保证脚本/管道可喂入）。
+//
 // 所有交互读取统一走这里，避免 bufio 缓冲与 term 直读混用导致管道输入错位。
 func readHidden() (string, error) {
+	if !term.IsTerminal(int(os.Stdin.Fd())) {
+		return readLineCooked(), nil
+	}
 	b, err := term.ReadPassword(int(os.Stdin.Fd()))
 	if err != nil {
 		return "", err

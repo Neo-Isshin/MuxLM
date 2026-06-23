@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
-# ez-switch 一键安装：  curl -fsSL https://<repo>/install.sh | bash
+# ez-switch 一键安装：  curl -fsSL https://gitea.nxc8335.cloud/nxc8335/ez-switch/raw/branch/main/install.sh | bash
+# （私有仓库，克隆/下载需在 URL 里带 token。）
 set -euo pipefail
 
-REPO="OWNER/ez-switch"            # TODO: 改成你的 GitHub 仓库（如 neo/ez-switch）
+GITEA="${GITEA:-https://gitea.nxc8335.cloud}"
+REPO="${REPO:-nxc8335/ez-switch}"
 BINDIR="${BINDIR:-$HOME/.local/bin}"
 VERSION="${VERSION:-latest}"
 
@@ -14,19 +16,20 @@ case "$ARCH" in
   *) echo "不支持的架构: $ARCH"; exit 1 ;;
 esac
 
-echo "下载 ez-switch $VERSION ($OS/$ARCH) → $BINDIR"
+echo "安装 ez-switch $VERSION ($OS/$ARCH) → $BINDIR"
 mkdir -p "$BINDIR"
 
-URL="https://github.com/$REPO/releases/latest/download/ez-switch-${OS}-${ARCH}"
+# 优先用预编译 release 资产（需已发布）；否则回退源码构建（需要 Go + 仓库访问权限）
+URL="$GITEA/$REPO/releases/download/$VERSION/ez-switch-${OS}-${ARCH}"
 if curl -fsSL "$URL" -o "$BINDIR/ez-switch"; then
   chmod +x "$BINDIR/ez-switch"
 else
-  echo "⚠️  没找到预编译二进制，回退到源码构建（需要 Go）..."
+  echo "⚠️  没找到预编译二进制，回退源码构建（需要 Go + 仓库访问权限）..."
   if ! command -v go >/dev/null 2>&1; then
-    echo "❌ 需要 Go 来从源码构建，请先安装 Go 或使用预编译二进制"; exit 1
+    echo "❌ 需要 Go；请先安装 Go 或发布预编译二进制"; exit 1
   fi
   tmp="$(mktemp -d)"
-  git clone --depth 1 "https://github.com/$REPO" "$tmp/repo"
+  git clone --depth 1 "$GITEA/$REPO" "$tmp/repo" || { echo "❌ 克隆失败（私有仓库需在 URL 带 token）"; exit 1; }
   ( cd "$tmp/repo" && go build -o "$BINDIR/ez-switch" . ) || { echo "❌ 构建失败"; exit 1; }
   chmod +x "$BINDIR/ez-switch"
   rm -rf "$tmp"
