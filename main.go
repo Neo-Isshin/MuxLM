@@ -217,10 +217,12 @@ func yes(b bool) string {
 }
 
 func pad(s string, width int) string {
-	if d := dispWidth(s); d < width {
+	d := dispWidth(s)
+	if d < width {
 		return s + strings.Repeat(" ", width-d)
 	}
-	return s
+	// 超宽内容（如较长的自定义别名）：也至少留一个空格，避免与下一列粘在一起。
+	return s + " "
 }
 
 func dispWidth(s string) int {

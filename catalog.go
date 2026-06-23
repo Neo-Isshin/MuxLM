@@ -59,6 +59,22 @@ func (p *Provider) wireAPI() string {
 	return p.WireAPI
 }
 
+// probeTarget 按目标 CLI 选出本次启动实际要用的 协议 + base_url，供设置期可用性探测。
+// claude→anthropic 端点；codex→openai 端点；opencode 优先 openai，没有则回退 anthropic。
+func (p *Provider) probeTarget(cli string, intl bool) (protocol, base string) {
+	switch cli {
+	case "claude":
+		return "anthropic", p.claudeURL(intl)
+	case "codex":
+		return "openai", p.openaiURL(intl)
+	default:
+		if u := p.openaiURL(intl); u != "" {
+			return "openai", u
+		}
+		return "anthropic", p.claudeURL(intl)
+	}
+}
+
 // keyEnv 返回给定区域的 key 环境变量名。海外用 <KeyEnv>_INTL，国内用 KeyEnv。
 // （国内/海外是两套独立账号、不同 key，故按区域区分存储。）
 func (p *Provider) keyEnv(intl bool) string {

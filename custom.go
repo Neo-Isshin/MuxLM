@@ -59,11 +59,12 @@ func saveCustomProfile(name string, c CustomProfile) {
 // profileToProvider 把自定义端点包装成 Provider，复用现有启动路径。
 func profileToProvider(name string, c CustomProfile) Provider {
 	p := Provider{
-		Alias:  name,
-		Name:   "自定义 · " + hostOf(c.Base),
-		Key:    c.Key,
-		CLI:    cliForProtocol(c.Protocol),
-		Models: []Model{{ID: c.Model, Tag: name, Latest: true}},
+		Alias: name,
+		Name:  "自定义 · " + hostOf(c.Base),
+		Key:   c.Key,
+		CLI:   cliForProtocol(c.Protocol),
+		// 单模型，无需版本别名——用裸别名 <name> 即可，避免表格里 版本别名 与 别名 重复。
+		Models: []Model{{ID: c.Model, Tag: "", Latest: true}},
 	}
 	if c.Protocol == "anthropic" {
 		p.ClaudeURL = c.Base
@@ -80,43 +81,54 @@ func cliForProtocol(proto string) []string {
 	return []string{"codex", "opencode"}
 }
 
-// runCustom 是 `cld/cdx/opc custom` 的入口：交互输入 → 可用性探测 → 启动（可选保存）。
+// runCustom 是 `cld/cdx/opc custom` 的入口：
+// 交互输入 → 可用性探测（不通过则重新输入）→ 保存为别名 → 启动。
+// 设置是一次性的：保存后日常用别名直接启动，不再探测（详见 keys.go 的 getKey 缓存逻辑）。
 func runCustom(cli string, skip bool, pass []string) error {
 	fmt.Fprintf(os.Stderr, "\n🛠  自定义端点（目标 CLI: %s）\n", cli)
-	base := strings.TrimRight(promptLine("端点 base URL: "), "/")
-	model := promptLine("model id: ")
-	key, err := readHiddenPrompt("API key（输入隐藏）: ")
-	if err != nil {
-		return fmt.Errorf("读取 key 失败: %w", err)
-	}
-	protocol := "openai"
-	if cli == "claude" {
-		protocol = "anthropic"
-	} else if cli == "opencode" {
-		protocol = promptProtocol()
-	}
-	if base == "" || model == "" || key == "" {
-		return fmt.Errorf("端点 / model / key 均不能为空")
-	}
-
-	fmt.Fprintln(os.Stderr, "探测中…")
-	ok, msg := probe(protocol, base, model, key)
-	fmt.Fprintln(os.Stderr, msg)
-	if !ok {
-		return fmt.Errorf("可用性检测未通过，已中止")
-	}
-
-	// 可选保存为自定义别名（默认不保存）
-	fmt.Fprint(os.Stderr, "保存为自定义别名以便下次直接用? [y/N] ")
-	if s := promptLine(""); s == "y" || s == "Y" || strings.EqualFold(s, "yes") {
-		name := promptLine("别名（如 myapi）: ")
-		if name != "" {
-			saveCustomProfile(name, CustomProfile{Protocol: protocol, Base: base, Model: model, Key: key})
+	var base, model, key, protocol string
+	for {
+		base = strings.TrimRight(promptLine("端点 base URL（留空取消）: "), "/")
+		if base == "" {
+			return fmt.Errorf("已取消")
 		}
+		model = promptLine("model id: ")
+		k, err := readHiddenPrompt("API key（输入隐藏）: ")
+		if err != nil {
+			return fmt.Errorf("读取 key 失败: %w", err)
+		}
+		key = k
+		protocol = "openai"
+		if cli == "claude" {
+			protocol = "anthropic"
+		} else if cli == "opencode" {
+			protocol = promptProtocol()
+		}
+		if model == "" || key == "" {
+			fmt.Fprintln(os.Stderr, "⚠ model / key 不能为空，请重新输入")
+			continue
+		}
+
+		// 设置期可用性检测：custom 走严格标准（必须 2xx，验证 端点+模型+key 整条链路）。
+		fmt.Fprintln(os.Stderr, "探测中…")
+		reachable, code, msg := probe(protocol, base, model, key)
+		fmt.Fprintln(os.Stderr, msg)
+		if reachable && code >= 200 && code < 300 {
+			break // 通过
+		}
+		fmt.Fprintln(os.Stderr, "↻ 检测未通过，请重新输入")
 	}
 
-	p := profileToProvider("custom", CustomProfile{Protocol: protocol, Base: base, Model: model, Key: key})
-	p.CLI = []string{cli}
+	// 探测通过 → 默认保存为别名（用户长期使用，不存在用完即弃）。默认名取域名，可改。
+	defName := hostOf(base)
+	name := promptLine("保存为别名（回车用 " + defName + "）: ")
+	if name == "" {
+		name = defName
+	}
+	saveCustomProfile(name, CustomProfile{Protocol: protocol, Base: base, Model: model, Key: key})
+
+	// 复用标准启动路径（inline key，getKey 会早返回、不再探测）。
+	p := profileToProvider(name, CustomProfile{Protocol: protocol, Base: base, Model: model, Key: key})
 	switch cli {
 	case "claude":
 		return launchClaude(&p, model, skip, false, pass)
@@ -128,9 +140,10 @@ func runCustom(cli string, skip bool, pass []string) error {
 	return nil
 }
 
-// probe 对端点发一个最小请求，判断可用性。
+// probe 发一个最小请求探测端点，返回 reachable（是否收到 HTTP 响应）、HTTP code、人读说明。
+// 不在此判定「是否通过」——custom（严格 2xx）与 built-in key 校验（仅 401/403 算 key 错）标准不同，由调用方决定。
 // anthropic: POST {base}/v1/messages；openai: POST {base}/chat/completions（404 则试 /v1/）。
-func probe(protocol, base, model, key string) (bool, string) {
+func probe(protocol, base, model, key string) (reachable bool, code int, msg string) {
 	client := &http.Client{Timeout: 20 * time.Second}
 	body := fmt.Sprintf(`{"model":%q,"max_tokens":1,"messages":[{"role":"user","content":"ping"}]}`, model)
 
@@ -146,8 +159,6 @@ func probe(protocol, base, model, key string) (bool, string) {
 		headers["Authorization"] = "Bearer " + key
 	}
 
-	var status int
-	tried := 0
 	for _, u := range urls {
 		req, err := http.NewRequest("POST", u, strings.NewReader(body))
 		if err != nil {
@@ -160,34 +171,36 @@ func probe(protocol, base, model, key string) (bool, string) {
 		if err != nil {
 			continue // 网络/超时；若有备用 URL 继续试
 		}
-		status = resp.StatusCode
+		code = resp.StatusCode
 		resp.Body.Close()
-		tried++
-		if status == 404 && len(urls) > 1 && u == urls[0] {
+		reachable = true
+		if code == 404 && len(urls) > 1 && u == urls[0] {
 			continue // openai：换 /v1/ 重试
 		}
 		break
 	}
-	if tried == 0 {
-		return false, "✗ 连不上端点（网络错误或超时）"
-	}
-	return interpretStatus(status)
+	msg = statusMsg(reachable, code)
+	return
 }
 
-func interpretStatus(code int) (bool, string) {
+// statusMsg 把 可达性 + HTTP 状态码 翻成人读说明（不判定通过与否）。
+func statusMsg(reachable bool, code int) string {
+	if !reachable {
+		return "✗ 连不上端点（网络错误或超时）"
+	}
 	switch {
 	case code >= 200 && code < 300:
-		return true, fmt.Sprintf("✓ 可用（HTTP %d）", code)
+		return fmt.Sprintf("✓ 可用（HTTP %d）", code)
 	case code == 401 || code == 403:
-		return false, fmt.Sprintf("✗ key 无效或无权限（HTTP %d）", code)
+		return fmt.Sprintf("✗ key 无效或无权限（HTTP %d）", code)
 	case code == 404:
-		return false, "✗ 端点路径不对（HTTP 404）—— 检查 base URL"
+		return "✗ 端点路径不对（HTTP 404）—— 检查 base URL"
 	case code == 400 || code == 422:
-		return false, fmt.Sprintf("⚠ 鉴权通过但请求被拒（HTTP %d）—— 多半是 model id 不对", code)
+		return fmt.Sprintf("⚠ 鉴权通过但请求被拒（HTTP %d）—— 多半是 model id 不对", code)
 	case code == 429:
-		return false, "⚠ 触发限流（HTTP 429）—— 端点可用，但请降低频率/检查额度"
+		return "⚠ 触发限流（HTTP 429）—— 端点可用，但请降低频率/检查额度"
 	default:
-		return false, fmt.Sprintf("✗ 异常状态（HTTP %d）", code)
+		return fmt.Sprintf("✗ 异常状态（HTTP %d）", code)
 	}
 }
 

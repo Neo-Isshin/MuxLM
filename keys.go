@@ -41,14 +41,15 @@ func loadKeys() map[string]string {
 	return k
 }
 
-// getKey 取某 provider 的 key。
+// getKey 取某 provider 的 key（cli/model 仅用于首次输入时的设置期可用性探测）。
 //   - 海外端点（--intl，或仅有海外 key）用 <KeyEnv>_INTL；国内用 KeyEnv。
 //   - 国内/海外都没 key 时，若 provider 有海外端点，先让用户选端点（据此设置 *intl），
 //     再隐藏输入对应 key；否则直接输入国内 key。
-//   - 可选保存到 keys.env（按区域用对应 env 名）。
-func getKey(p *Provider, intl *bool) (string, error) {
+//   - 命中已缓存的 key（env/keys.env）直接返回，**不探测**——可用性只在首次设置时检测一次。
+//   - 首次输入的 key 保存到 keys.env（按区域用对应 env 名）。
+func getKey(p *Provider, intl *bool, cli, model string) (string, error) {
 	if p.Key != "" {
-		return p.Key, nil // custom 自定义别名：内联 key，跳过 env/交互
+		return p.Key, nil // custom 自定义别名：内联 key，跳过 env/交互/探测
 	}
 	keys := loadKeys()
 	cnEnv := p.KeyEnv
@@ -67,7 +68,7 @@ func getKey(p *Provider, intl *bool) (string, error) {
 		if v := keys[intlEnv]; v != "" {
 			return v, nil
 		}
-		return promptKey(p, intlEnv, true)
+		return promptKey(p, intlEnv, true, cli, model)
 	}
 
 	// 未显式指定：优先国内 key
@@ -84,31 +85,66 @@ func getKey(p *Provider, intl *bool) (string, error) {
 		fmt.Fprintf(os.Stderr, "\n⚠️  未找到 %s。%s 区分 国内/海外（两套独立账号，key 不同）。\n", cnEnv, p.Name)
 		if chooseIntl(p) {
 			*intl = true
-			return promptKey(p, intlEnv, true)
+			return promptKey(p, intlEnv, true, cli, model)
 		}
 	}
-	return promptKey(p, cnEnv, false)
+	return promptKey(p, cnEnv, false, cli, model)
 }
 
-// promptKey 隐藏输入 key，并询问是否保存（按区域用对应 env 名）。
-func promptKey(p *Provider, envName string, intl bool) (string, error) {
+// promptKey 隐藏输入 key：首次输入时做设置期可用性探测，
+// 端点明确返回 401/403（key 错）则提示重新输入；通过后保存到 keys.env（按区域 env 名）。
+func promptKey(p *Provider, envName string, intl bool, cli, model string) (string, error) {
 	region := "国内"
 	host := p.host(false)
 	if intl {
 		region = "海外"
 		host = p.host(true)
 	}
-	fmt.Fprintf(os.Stderr, "请输入 %s（%s %s，输入隐藏，回车取消）: ", envName, region, host)
-	val, err := readHidden()
-	if err != nil {
-		return "", fmt.Errorf("读取输入失败: %w", err)
+	for {
+		fmt.Fprintf(os.Stderr, "请输入 %s（%s %s，输入隐藏，回车取消）: ", envName, region, host)
+		val, err := readHidden()
+		if err != nil {
+			return "", fmt.Errorf("读取输入失败: %w", err)
+		}
+		if val == "" {
+			return "", fmt.Errorf("已取消：未提供 %s", envName)
+		}
+		// 设置期可用性检测：仅 401/403 判定 key 错（重输）；不可达/其它状态都接受。
+		if note, bad := checkKey(p, cli, model, intl, val); bad {
+			fmt.Fprintln(os.Stderr, note)
+			fmt.Fprintln(os.Stderr, "↻ key 无效，请重新输入（回车取消）")
+			continue
+		} else if note != "" {
+			fmt.Fprintln(os.Stderr, note)
+		}
+		// 默认保存（keys.env，权限 600），下次免输——不再逐次询问，保持工具轻量。
+		saveKey(envName, val)
+		return val, nil
 	}
-	if val == "" {
-		return "", fmt.Errorf("已取消：未提供 %s", envName)
+}
+
+// checkKey 设置期校验 key 是否被端点接受。
+//   - 仅当端点明确返回 401/403 才判定 key 错（badKey=true，调用方应让用户重输）。
+//   - 不可达、或 400/429 等非鉴权错误，都视为 key 可用——端点/模型问题不该挡住一个正确的 key。
+//
+// 返回 note：给人看的说明（2xx 时为空，静默）。
+func checkKey(p *Provider, cli, model string, intl bool, key string) (note string, badKey bool) {
+	proto, base := p.probeTarget(cli, intl)
+	if base == "" {
+		return "", false // 无可探测端点（不应发生），跳过检测
 	}
-	// 默认保存（keys.env，权限 600），下次免输——不再逐次询问，保持工具轻量。
-	saveKey(envName, val)
-	return val, nil
+	fmt.Fprintln(os.Stderr, "检测 key…")
+	reachable, code, msg := probe(proto, base, model, key)
+	switch {
+	case reachable && (code == 401 || code == 403):
+		return msg, true
+	case !reachable:
+		return "⚠ 暂时连不上端点，已保存 key（若实际启动失败再核对）", false
+	case code < 200 || code >= 300:
+		return msg + "（key 鉴权已通过，已保存）", false
+	default:
+		return "", false // 2xx
+	}
 }
 
 // chooseIntl 让用户在国内/海外端点间选择，默认国内。

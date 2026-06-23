@@ -11,7 +11,7 @@ import (
 
 // ---- claude: inline env + exec（不写全局 settings.json）----
 func launchClaude(p *Provider, model string, skip, intl bool, pass []string) error {
-	key, err := getKey(p, &intl)
+	key, err := getKey(p, &intl, "claude", model)
 	if err != nil {
 		return err
 	}
@@ -34,7 +34,7 @@ func launchClaude(p *Provider, model string, skip, intl bool, pass []string) err
 
 // ---- codex: 一次性 CODEX_HOME（临时 config.toml + auth.json，跑完即弃）----
 func launchCodex(p *Provider, model string, skip, intl bool, pass []string) error {
-	key, err := getKey(p, &intl)
+	key, err := getKey(p, &intl, "codex", model)
 	if err != nil {
 		return err
 	}
@@ -72,7 +72,7 @@ wire_api = %q
 
 // ---- opencode: 一次性 OPENCODE_CONFIG_DIR（临时 opencode.json）----
 func launchOpencode(p *Provider, model string, skip, intl bool, pass []string) error {
-	key, err := getKey(p, &intl)
+	key, err := getKey(p, &intl, "opencode", model)
 	if err != nil {
 		return err
 	}
