@@ -1,5 +1,7 @@
 package main
 
+import "strings"
+
 // Model 是某个 provider 下的一个具体模型。
 type Model struct {
 	ID     string // 真实模型 id，如 "glm-5.2"，会带版本号
@@ -54,6 +56,40 @@ func (p *Provider) wireAPI() string {
 		return "chat"
 	}
 	return p.WireAPI
+}
+
+// keyEnv 返回给定区域的 key 环境变量名。海外用 <KeyEnv>_INTL，国内用 KeyEnv。
+// （国内/海外是两套独立账号、不同 key，故按区域区分存储。）
+func (p *Provider) keyEnv(intl bool) string {
+	if intl && p.hasIntl() {
+		return p.KeyEnv + "_INTL"
+	}
+	return p.KeyEnv
+}
+
+// host 返回该区域的代表域名（交互提示时让用户认出是哪个端点）。
+func (p *Provider) host(intl bool) string {
+	u := p.ClaudeURL
+	if intl {
+		u = p.ClaudeURLIntl
+	}
+	if u == "" {
+		u = p.OpenAIURL
+		if intl {
+			u = p.OpenAIURLIntl
+		}
+	}
+	return hostOf(u)
+}
+
+// hostOf 从一个 base_url 里抠出域名。
+func hostOf(u string) string {
+	u = strings.TrimPrefix(u, "https://")
+	u = strings.TrimPrefix(u, "http://")
+	if i := strings.IndexByte(u, '/'); i >= 0 {
+		return u[:i]
+	}
+	return u
 }
 
 // providers 是内置种子 catalog（可由维护者增删；终端用户用别名直接切）。

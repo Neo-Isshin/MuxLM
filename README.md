@@ -56,6 +56,16 @@ cld glm -- "fix the bug"          # -- 之后透传给底层 CLI
 
 环境变量优先级高于 keys.env。
 
+### 国内 / 海外端点（MiniMax、SiliconFlow）
+
+这两家国内与海外是**两套独立账号、两把不同的 key**，工具按区域分开存：
+- 国内 → `MINIMAX_KEY` / `SILICONFLOW_KEY`
+- 海外 → `MINIMAX_KEY_INTL` / `SILICONFLOW_KEY_INTL`
+
+首次输入时，若两边都没 key，会先让你**选端点**（显示各自域名，如 `api.minimaxi.com` / `api.minimax.io`），再按区域隐藏输入并保存。之后：
+- 只存了国内 key → 走国内；只存了海外 key → 自动走海外。
+- 两边都有 → 默认国内，`--intl` 强制海外。
+
 ## 对照表
 
 `cld list`（或 `cdx list` / `opc list`）打印（节选）：

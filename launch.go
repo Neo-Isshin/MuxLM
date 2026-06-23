@@ -11,13 +11,13 @@ import (
 
 // ---- claude: inline env + exec（不写全局 settings.json）----
 func launchClaude(p *Provider, model string, skip, intl bool, pass []string) error {
+	key, err := getKey(p, &intl)
+	if err != nil {
+		return err
+	}
 	url := p.claudeURL(intl)
 	if url == "" {
 		return fmt.Errorf("%s 没有 claude(anthropic) 端点", p.Name)
-	}
-	key, err := getKey(p.KeyEnv, p.Name)
-	if err != nil {
-		return err
 	}
 	args := []string{"--model", model}
 	if skip {
@@ -34,13 +34,13 @@ func launchClaude(p *Provider, model string, skip, intl bool, pass []string) err
 
 // ---- codex: 一次性 CODEX_HOME（临时 config.toml + auth.json，跑完即弃）----
 func launchCodex(p *Provider, model string, skip, intl bool, pass []string) error {
+	key, err := getKey(p, &intl)
+	if err != nil {
+		return err
+	}
 	url := p.openaiURL(intl)
 	if url == "" {
 		return fmt.Errorf("%s 没有 codex(openai) 端点", p.Name)
-	}
-	key, err := getKey(p.KeyEnv, p.Name)
-	if err != nil {
-		return err
 	}
 	dir, err := os.MkdirTemp("", "cx-codex-*")
 	if err != nil {
@@ -72,6 +72,10 @@ wire_api = %q
 
 // ---- opencode: 一次性 OPENCODE_CONFIG_DIR（临时 opencode.json）----
 func launchOpencode(p *Provider, model string, skip, intl bool, pass []string) error {
+	key, err := getKey(p, &intl)
+	if err != nil {
+		return err
+	}
 	url := p.openaiURL(intl)
 	npm := "@ai-sdk/openai-compatible"
 	if url == "" {
@@ -80,10 +84,6 @@ func launchOpencode(p *Provider, model string, skip, intl bool, pass []string) e
 	}
 	if url == "" {
 		return fmt.Errorf("%s 没有可用端点", p.Name)
-	}
-	key, err := getKey(p.KeyEnv, p.Name)
-	if err != nil {
-		return err
 	}
 	dir, err := os.MkdirTemp("", "cx-opencode-*")
 	if err != nil {
@@ -141,12 +141,13 @@ func run(cmd *exec.Cmd) error {
 
 // preview 打印将要执行的命令（--dry-run）。
 func preview(cli string, p *Provider, model string, skip, intl bool, pass []string) {
+	envName := p.keyEnv(intl)
 	keyStatus := "已设置"
-	if os.Getenv(p.KeyEnv) == "" {
+	if loadKeys()[envName] == "" {
 		keyStatus = "未设置(将交互输入)"
 	}
 	fmt.Printf("【DRY-RUN】 %s | %s | model=%s | skip=%v | intl=%v | %s=%s\n",
-		cli, p.Name, model, skip, intl, p.KeyEnv, keyStatus)
+		cli, p.Name, model, skip, intl, envName, keyStatus)
 	switch cli {
 	case "claude":
 		args := []string{"--model", model}
@@ -154,7 +155,7 @@ func preview(cli string, p *Provider, model string, skip, intl bool, pass []stri
 			args = append(args, "--dangerously-skip-permissions")
 		}
 		args = append(args, pass...)
-		fmt.Printf("  env  ANTHROPIC_BASE_URL=%s  ANTHROPIC_AUTH_TOKEN=$%s\n", p.claudeURL(intl), p.KeyEnv)
+		fmt.Printf("  env  ANTHROPIC_BASE_URL=%s  ANTHROPIC_AUTH_TOKEN=$%s\n", p.claudeURL(intl), p.keyEnv(intl))
 		fmt.Printf("  run  claude %s\n", joinArgs(args))
 	case "codex":
 		var args []string
