@@ -114,7 +114,7 @@ func hostOf(u string) string {
 var providers = []Provider{
 	{
 		Alias:     "glm",
-		Name:      "智谱 GLM",
+		Name:      "智谱 GLM（按量计费 API）",
 		ClaudeURL: "https://open.bigmodel.cn/api/anthropic",
 		OpenAIURL: "https://open.bigmodel.cn/api/paas/v4",
 		KeyEnv:    "GLM_KEY",
@@ -126,14 +126,39 @@ var providers = []Provider{
 		},
 	},
 	{
-		Alias:     "kimi",
-		Name:      "Moonshot Kimi",
-		ClaudeURL: "https://api.moonshot.cn/anthropic",
-		OpenAIURL: "https://api.moonshot.cn/v1",
-		KeyEnv:    "KIMI_KEY",
+		// GLM Coding Plan（订阅）：anthropic 端点与按量计费相同（用 key 区分套餐）；
+		// openai 协议必须用 Coding 专属端点 /api/coding/paas/v4。模型 id 不变。
+		Alias:     "glmc",
+		Name:      "智谱 GLM Coding Plan（订阅）",
+		ClaudeURL: "https://open.bigmodel.cn/api/anthropic",
+		OpenAIURL: "https://open.bigmodel.cn/api/coding/paas/v4",
+		KeyEnv:    "GLM_CODING_KEY",
 		CLI:       []string{"claude", "codex", "opencode"},
 		Models: []Model{
+			{ID: "glm-5.2", Tag: "", Latest: true},
+		},
+	},
+	{
+		// 普通 Kimi API 为 openai 协议（/v1）。注意：/anthropic 与 /coding 都是 Coding 订阅端点，
+		// 且只接受 kimi-for-coding，发 kimi-k2.x 会被拒——见下面的 kimic。
+		Alias:     "kimi",
+		Name:      "Moonshot Kimi（按量计费 API）",
+		OpenAIURL: "https://api.moonshot.cn/v1",
+		KeyEnv:    "KIMI_KEY",
+		CLI:       []string{"codex", "opencode"},
+		Models: []Model{
 			{ID: "kimi-k2.6", Tag: "kimi26", Latest: true},
+		},
+	},
+	{
+		// Kimi for Coding（订阅）：anthropic 端点 /coding，模型必须是 kimi-for-coding（kimi-k2.x 会被拒）。
+		Alias:     "kimic",
+		Name:      "Moonshot Kimi for Coding（订阅）",
+		ClaudeURL: "https://api.moonshot.cn/coding",
+		KeyEnv:    "KIMI_CODING_KEY",
+		CLI:       []string{"claude", "opencode"},
+		Models: []Model{
+			{ID: "kimi-for-coding", Tag: "", Latest: true},
 		},
 	},
 	{

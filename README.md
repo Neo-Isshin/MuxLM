@@ -76,14 +76,29 @@ cld glm -- "fix the bug"          # -- 之后透传给底层 CLI
 - 只存了国内 key → 走国内；只存了海外 key → 自动走海外。
 - 两边都有 → 默认国内，`--intl` 强制海外。
 
+### Coding Plan（订阅）端点
+
+Kimi 和 GLM 都有独立的「Coding 订阅套餐」，其**端点 / 模型 / key 与普通按量计费 API 不同**，故拆成单独别名：
+
+| 别名 | 用途 | 端点（与普通 API 的差异） | key |
+|---|---|---|---|
+| `kimic` | Kimi for Coding 订阅 | anthropic `api.moonshot.cn/coding`（普通是 openai `/v1`）；**模型必须用 `kimi-for-coding`**，发 `kimi-k2.x` 会被拒 | `KIMI_CODING_KEY` |
+| `glmc` | GLM Coding Plan 订阅 | anthropic 端点与普通相同（`/api/anthropic`，靠 key 区分套餐）；openai 协议须用专属 `open.bigmodel.cn/api/coding/paas/v4`；模型 id 不变 | `GLM_CODING_KEY` |
+
+普通按量计费走 `kimi` / `glm`（`KIMI_KEY` / `GLM_KEY`）。**Kimi 的 `/anthropic`、`/coding` 都是 Coding 端点，只接受 `kimi-for-coding`**，所以普通 Kimi API（`kimi`）只有 openai 端点、不支持 claude——要用 claude 就走订阅 `kimic`。
+
+> 其余厂商无此拆分：MiniMax Coding 订阅与按量计费用**同一个** `/anthropic` 端点、同一模型 `MiniMax-M3`，**仅 key 不同**（订阅 key 为 `sk-cp-` 前缀），直接把订阅 key 填进 `MINIMAX_KEY` 即可，无需单独别名；DeepSeek / 火山方舟 / SiliconFlow / Nvidia NIM 均只有一套标准 API。
+
 ## 对照表
 
 `cld list`（或 `cdx list` / `opc list`）打印（节选）：
 
 | 别名 | 版本别名 | 厂商 | 默认模型 | claude | codex | opencode | intl |
 |---|---|---|---|:-:|:-:|:-:|:-:|
-| `glm` | `glm52`·`glm51`·`glm47` | 智谱 GLM | glm-5.2 | ✅ | ✅ | ✅ | — |
-| `kimi` | `kimi26` | Moonshot Kimi | kimi-k2.6 | ✅ | ✅ | ✅ | — |
+| `glm` | `glm52`·`glm51`·`glm47` | 智谱 GLM（按量计费） | glm-5.2 | ✅ | ✅ | ✅ | — |
+| `glmc` | — | 智谱 GLM Coding Plan | glm-5.2 | ✅ | ✅ | ✅ | — |
+| `kimi` | `kimi26` | Moonshot Kimi（按量计费） | kimi-k2.6 | — | ✅ | ✅ | — |
+| `kimic` | — | Moonshot Kimi for Coding | kimi-for-coding | ✅ | — | ✅ | — |
 | `m` | `m3`·`m27` | MiniMax | MiniMax-M3 | ✅ | ✅ | ✅ | `--intl` |
 | `doubao` | `doubao` | 火山方舟 Doubao | doubao-seed-2-0-code-preview-latest | ✅ | ✅ | ✅ | `--intl` |
 | `nv` | `nvl` | Nvidia NIM | meta/llama-3.1-405b-instruct | — | ✅ | ✅ | — |
