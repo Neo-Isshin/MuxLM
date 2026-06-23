@@ -151,10 +151,11 @@ var providers = []Provider{
 		},
 	},
 	{
-		// Kimi for Coding（订阅）：anthropic 端点 /coding，模型必须是 kimi-for-coding（kimi-k2.x 会被拒）。
+		// Kimi for Coding（订阅）：anthropic 端点 api.kimi.com/coding（注意与普通 api.moonshot.cn 不同域），
+		// 模型必须是 kimi-for-coding（kimi-k2.x 会被拒）。实测 api.moonshot.cn/coding 返回 404，已弃用。
 		Alias:     "kimic",
-		Name:      "Moonshot Kimi for Coding（订阅）",
-		ClaudeURL: "https://api.moonshot.cn/coding",
+		Name:      "Kimi for Coding（订阅）",
+		ClaudeURL: "https://api.kimi.com/coding",
 		KeyEnv:    "KIMI_CODING_KEY",
 		CLI:       []string{"claude", "opencode"},
 		Models: []Model{
