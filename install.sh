@@ -14,8 +14,12 @@ case "$(uname -s)/$(uname -m)" in
   *) echo "✗ 不支持: $(uname -s)/$(uname -m)" >&2; exit 1 ;;
 esac
 
-URL="$GITEA/$REPO/releases/latest/download/ez-switch-$GOOS-$GOARCH"
-echo "→ $URL"
+# Gitea 的 /releases/latest/download/... 路径不通，必须先解析出 tag 再拼 /releases/download/{tag}/...
+TAG=$(curl -fsSL "$GITEA/api/v1/repos/$REPO/releases/latest" | sed -n 's/.*"tag_name":"\([^"]*\)".*/\1/p' | head -1)
+[ -n "$TAG" ] || { echo "✗ 解析 latest tag 失败: $GITEA/api/v1/repos/$REPO/releases/latest" >&2; exit 1; }
+
+URL="$GITEA/$REPO/releases/download/$TAG/ez-switch-$GOOS-$GOARCH"
+echo "→ $URL  ($TAG)"
 
 mkdir -p "$BINDIR"
 curl -fsSL "$URL" -o "$BINDIR/ez-switch"
