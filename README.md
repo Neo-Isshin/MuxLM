@@ -16,20 +16,13 @@
 
 ## 安装
 
-> 仓库在自建 Gitea（私有），克隆/下载需带 token。
+> 仓库在自建 Gitea（私有），需先在仓库里发一份对应平台（`ez-switch-darwin-arm64` / `ez-switch-darwin-amd64` / `ez-switch-linux-arm64` / `ez-switch-linux-amd64`）的 release 资产。
 
 ```bash
-# 一键脚本（需先发布 release 资产；私有仓库请在 URL 里带 token）
 curl -fsSL https://gitea.nxc8335.cloud/nxc8335/ez-switch/raw/branch/main/install.sh | bash
-
-# 或源码构建（需要 Go）
-git clone https://gitea.nxc8335.cloud/nxc8335/ez-switch && cd ez-switch
-go build -o ez-switch .
-install -m755 ez-switch ~/.local/bin
-( cd ~/.local/bin && ln -sf ez-switch cdx && ln -sf ez-switch cld && ln -sf ez-switch opc )
 ```
 
-> 入口名 `cdx`/`cld`/`opc` 已避开常见系统命令（`cc` 编译器、`oc` OpenShift 等），装进 `~/.local/bin` 无遮盖风险。
+入口名 `cdx` / `cld` / `opc` 是同一个二进制 `ez-switch` 的三个软链（程序靠 `argv[0]` 决定走 `codex` / `claude` / `opencode`），装进 `~/.local/bin` 无遮盖风险。
 
 ## 用法
 
