@@ -19,13 +19,37 @@ TAG=$(curl -fsSL "$GITEA/api/v1/repos/$REPO/releases/latest" | sed -n 's/.*"tag_
 [ -n "$TAG" ] || { echo "✗ 解析 latest tag 失败: $GITEA/api/v1/repos/$REPO/releases/latest" >&2; exit 1; }
 
 URL="$GITEA/$REPO/releases/download/$TAG/ez-switch-$GOOS-$GOARCH"
+SUMS_URL="$GITEA/$REPO/releases/download/$TAG/SHA256SUMS"
 echo "→ $URL  ($TAG)"
 
 mkdir -p "$BINDIR"
-curl -fsSL "$URL" -o "$BINDIR/ez-switch"
-chmod +x "$BINDIR/ez-switch"
-( cd "$BINDIR" && ln -sf ez-switch cdx && ln -sf ez-switch cld && ln -sf ez-switch opc )
+TMP_BIN=$(mktemp "$BINDIR/.ez-switch.XXXXXX")
+TMP_SUMS=$(mktemp "$BINDIR/.ez-switch-sums.XXXXXX")
+cleanup() { rm -f "$TMP_BIN" "$TMP_SUMS"; }
+trap cleanup EXIT
 
+curl -fsSL "$URL" -o "$TMP_BIN"
+curl -fsSL "$SUMS_URL" -o "$TMP_SUMS"
+ASSET="ez-switch-$GOOS-$GOARCH"
+EXPECTED=$(awk -v asset="$ASSET" '$2 == asset { print $1; exit }' "$TMP_SUMS")
+[ -n "$EXPECTED" ] || { echo "✗ SHA256SUMS 中没有 $ASSET" >&2; exit 1; }
+if command -v shasum >/dev/null 2>&1; then
+  ACTUAL=$(shasum -a 256 "$TMP_BIN" | awk '{print $1}')
+elif command -v sha256sum >/dev/null 2>&1; then
+  ACTUAL=$(sha256sum "$TMP_BIN" | awk '{print $1}')
+else
+  echo "✗ 系统缺少 shasum/sha256sum，无法校验下载文件" >&2
+  exit 1
+fi
+[ "$ACTUAL" = "$EXPECTED" ] || { echo "✗ SHA-256 校验失败" >&2; exit 1; }
+
+chmod 755 "$TMP_BIN"
+mv -f "$TMP_BIN" "$BINDIR/ez-switch"
+( cd "$BINDIR" && ln -sf ez-switch cdx && ln -sf ez-switch cld && ln -sf ez-switch opc )
+rm -f "$TMP_SUMS"
+trap - EXIT
+
+echo "✓ SHA-256 校验通过"
 echo "✓ $BINDIR/{ez-switch,cdx,cld,opc} 已就绪"
 case ":$PATH:" in
   *":$BINDIR:"*) ;;

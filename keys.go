@@ -1,137 +1,385 @@
 package main
 
 import (
+	"crypto/rand"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"golang.org/x/term"
 )
 
-// keysFile 是本地保存 key 的文件（可选；权限 600）。
-func keysFile() string {
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".config", "cx", "keys.env")
+type KeyRecord struct {
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	Plan    string `json:"plan"`
+	Region  string `json:"region"`
+	Backend string `json:"backend"`
+	Ref     string `json:"secret_ref"`
 }
 
-// loadKeys 合并 环境变量 + keys.env 文件（环境变量优先）。
-func loadKeys() map[string]string {
+type keyFile struct {
+	Version int         `json:"version"`
+	Keys    []KeyRecord `json:"keys"`
+}
+
+func keysFile() string                  { return filepath.Join(configDir(), "keys.env") } // v1 兼容读取
+func providerKeysFile(id string) string { return filepath.Join(providerDir(id), "keys.json") }
+
+func loadLegacyKeys() map[string]string {
 	k := make(map[string]string)
-	for _, kv := range os.Environ() {
-		if eq := strings.IndexByte(kv, '='); eq > 0 {
-			k[kv[:eq]] = kv[eq+1:]
-		}
-	}
-	if data, err := os.ReadFile(keysFile()); err == nil {
+	if data, err := readPrivateFile(keysFile()); err == nil {
 		for _, line := range strings.Split(string(data), "\n") {
 			line = strings.TrimSpace(line)
 			if line == "" || strings.HasPrefix(line, "#") {
 				continue
 			}
 			if eq := strings.IndexByte(line, '='); eq > 0 {
-				key := strings.TrimSpace(line[:eq])
-				val := strings.TrimSpace(line[eq+1:])
-				if _, ok := k[key]; !ok {
-					k[key] = val
-				}
+				// 旧文件可能有重复项；最后一项应当生效，便于 key 轮换。
+				k[strings.TrimSpace(line[:eq])] = strings.TrimSpace(line[eq+1:])
 			}
 		}
 	}
 	return k
 }
 
-// getKey 取某 provider 的 key（cli/model 仅用于首次输入时的设置期可用性探测）。
-//   - 海外端点（--intl，或仅有海外 key）用 <KeyEnv>_INTL；国内用 KeyEnv。
-//   - 国内/海外都没 key 时，若 provider 有海外端点，先让用户选端点（据此设置 *intl），
-//     再隐藏输入对应 key；否则直接输入国内 key。
-//   - 命中已缓存的 key（env/keys.env）直接返回，**不探测**——可用性只在首次设置时检测一次。
-//   - 首次输入的 key 保存到 keys.env（按区域用对应 env 名）。
-func getKey(p *Provider, intl *bool, cli, model string) (string, error) {
-	if p.Key != "" {
-		return p.Key, nil // custom 自定义别名：内联 key，跳过 env/交互/探测
+func loadProviderKeys(id string) ([]KeyRecord, error) {
+	path := providerKeysFile(id)
+	b, err := readPrivateFile(path)
+	if os.IsNotExist(err) {
+		return nil, nil
 	}
-	keys := loadKeys()
-	cnEnv := p.KeyEnv
-	intlEnv := ""
+	if err != nil {
+		return nil, err
+	}
+	var f keyFile
+	if err := json.Unmarshal(b, &f); err != nil {
+		return nil, fmt.Errorf("%s 损坏: %w", path, err)
+	}
+	if err := validateKeyRecords(id, f.Keys); err != nil {
+		return nil, fmt.Errorf("%s 无效: %w", path, err)
+	}
+	_ = os.Chmod(path, 0o600)
+	return f.Keys, nil
+}
+
+func validateKeyRecords(providerID string, keys []KeyRecord) error {
+	if providerID == "" || safeID(providerID) != providerID {
+		return fmt.Errorf("非法 provider id")
+	}
+	ids, names := map[string]bool{}, map[string]bool{}
+	for _, k := range keys {
+		if k.ID == "" || safeID(k.ID) != k.ID || ids[k.ID] {
+			return fmt.Errorf("非法或重复 key id")
+		}
+		ids[k.ID] = true
+		if k.Plan == "" || safeID(k.Plan) != k.Plan {
+			return fmt.Errorf("非法 plan")
+		}
+		if k.Region != "cn" && k.Region != "intl" {
+			return fmt.Errorf("非法 region")
+		}
+		if k.Backend != "keychain" && k.Backend != "secret-service" && k.Backend != "file" {
+			return fmt.Errorf("非法 backend")
+		}
+		if k.Ref != fmt.Sprintf("provider/%s/key/%s", providerID, k.ID) {
+			return fmt.Errorf("非法 secret_ref")
+		}
+		if k.Name == "" || len(k.Name) > 64 || strings.ContainsAny(k.Name, "\r\n\t") {
+			return fmt.Errorf("非法 key 名称")
+		}
+		nameKey := k.Plan + "/" + k.Region + "/" + k.Name
+		if names[nameKey] {
+			return fmt.Errorf("重复 key 名称")
+		}
+		names[nameKey] = true
+	}
+	return nil
+}
+
+func saveProviderKeys(id string, keys []KeyRecord) error {
+	return atomicWriteJSON(providerKeysFile(id), keyFile{Version: 1, Keys: keys})
+}
+
+type keyCandidate struct {
+	Name, Source, Value string
+	Record              *KeyRecord
+}
+
+func getKey(p *Provider, intl *bool, cli, model string) (string, error) {
+	if *intl && !p.hasIntl() {
+		*intl = false
+	}
+	cnEnv, intlEnv := p.KeyEnv, ""
 	if p.hasIntl() {
 		intlEnv = p.KeyEnv + "_INTL"
 	}
-
-	// provider 无海外端点时，--intl 无意义，归一到国内
-	if *intl && intlEnv == "" {
-		*intl = false
+	if !*intl && p.hasIntl() && os.Getenv(cnEnv) == "" && loadLegacyKeys()[cnEnv] == "" {
+		keys, _ := loadProviderKeys(p.providerID())
+		hasCN, hasIntl := false, false
+		for _, k := range keys {
+			if k.Plan != p.planID() {
+				continue
+			}
+			if k.Region == "intl" {
+				hasIntl = true
+			} else {
+				hasCN = true
+			}
+		}
+		if !hasCN && hasIntl {
+			*intl = true
+		}
+		if !hasCN && !hasIntl && intlEnv != "" && (os.Getenv(intlEnv) != "" || loadLegacyKeys()[intlEnv] != "") {
+			*intl = true
+		}
 	}
-
-	// 显式选海外
+	region := "cn"
 	if *intl {
-		if v := keys[intlEnv]; v != "" {
-			return v, nil
-		}
-		return promptKey(p, intlEnv, true, cli, model)
+		region = "intl"
 	}
 
-	// 未显式指定：优先国内 key
-	if v := keys[cnEnv]; v != "" {
-		return v, nil
-	}
-	// 只有海外 key → 自动切海外
-	if intlEnv != "" {
-		if v := keys[intlEnv]; v != "" {
-			*intl = true
-			return v, nil
+	for {
+		candidates, err := keyCandidates(p, region)
+		if err != nil {
+			return "", err
 		}
-		// 都没有 → 选端点
-		fmt.Fprintf(os.Stderr, "\n⚠️  未找到 %s。%s 区分 国内/海外（两套独立账号，key 不同）。\n", cnEnv, p.Name)
-		if chooseIntl(p) {
-			*intl = true
-			return promptKey(p, intlEnv, true, cli, model)
+		if len(candidates) == 0 {
+			if p.hasIntl() && !*intl {
+				fmt.Fprintf(os.Stderr, "\n%s 尚未配置 %s key。\n", p.Name, planDisplay(p.planID()))
+				*intl = chooseIntl(p)
+				if *intl {
+					region = "intl"
+				}
+			}
+			return addNamedKey(p, region, cli, model)
 		}
+		if len(candidates) == 1 {
+			return resolveCandidate(p, candidates[0])
+		}
+		chosen, retry, err := chooseKeyCandidate(p, region, candidates)
+		if err != nil {
+			return "", err
+		}
+		if retry {
+			continue
+		}
+		return resolveCandidate(p, chosen)
 	}
-	return promptKey(p, cnEnv, false, cli, model)
 }
 
-// promptKey 隐藏输入 key：首次输入时做设置期可用性探测，
-// 端点明确返回 401/403（key 错）则提示重新输入；通过后保存到 keys.env（按区域 env 名）。
-func promptKey(p *Provider, envName string, intl bool, cli, model string) (string, error) {
-	region := "国内"
-	host := p.host(false)
-	if intl {
-		region = "海外"
-		host = p.host(true)
+func keyCandidates(p *Provider, region string) ([]keyCandidate, error) {
+	var out []keyCandidate
+	envName := p.KeyEnv
+	if region == "intl" && p.hasIntl() {
+		envName += "_INTL"
 	}
+	if v := os.Getenv(envName); v != "" {
+		out = append(out, keyCandidate{Name: envName, Source: "env", Value: v})
+	} else if v := loadLegacyKeys()[envName]; v != "" {
+		out = append(out, keyCandidate{Name: envName, Source: "legacy-file", Value: v})
+	}
+	if p.Key != "" {
+		out = append(out, keyCandidate{Name: "legacy-custom", Source: "legacy-file", Value: p.Key})
+	}
+	keys, err := loadProviderKeys(p.providerID())
+	if err != nil {
+		return nil, err
+	}
+	for i := range keys {
+		k := &keys[i]
+		if k.Plan == p.planID() && k.Region == region {
+			out = append(out, keyCandidate{Name: k.Name, Source: k.Backend, Record: k})
+		}
+	}
+	return out, nil
+}
+
+func resolveCandidate(p *Provider, c keyCandidate) (string, error) {
+	if c.Record == nil {
+		return c.Value, nil
+	}
+	return secretGet(p.providerID(), c.Record.Backend, c.Record.Ref)
+}
+
+func chooseKeyCandidate(p *Provider, region string, candidates []keyCandidate) (keyCandidate, bool, error) {
 	for {
-		fmt.Fprintf(os.Stderr, "请输入 %s（%s %s，输入隐藏，回车取消）: ", envName, region, host)
-		val, err := readHidden()
+		fmt.Fprintf(os.Stderr, "\n%s 有多个可用 key（%s / %s）:\n", p.Name, planDisplay(p.planID()), regionDisplay(region))
+		for i, c := range candidates {
+			fmt.Fprintf(os.Stderr, "  %d) %s  [%s]\n", i+1, c.Name, c.Source)
+		}
+		fmt.Fprint(os.Stderr, "选择 [1]，输入 x 删除已保存 key: ")
+		s := strings.ToLower(promptLine(""))
+		if s == "" {
+			return candidates[0], false, nil
+		}
+		if s == "x" {
+			fmt.Fprint(os.Stderr, "输入要删除的编号（回车取消）: ")
+			n, _ := strconv.Atoi(promptLine(""))
+			if n < 1 || n > len(candidates) {
+				continue
+			}
+			c := candidates[n-1]
+			if c.Record == nil {
+				fmt.Fprintln(os.Stderr, "⚠ 环境变量/旧配置不能在此删除")
+				continue
+			}
+			confirm := strings.ToLower(promptLine(fmt.Sprintf("确认删除 key %q？输入 yes: ", c.Name)))
+			if confirm != "yes" {
+				fmt.Fprintln(os.Stderr, "已取消")
+				continue
+			}
+			if err := deleteKeyRecord(p.providerID(), c.Record.ID); err != nil {
+				return keyCandidate{}, false, err
+			}
+			fmt.Fprintln(os.Stderr, "✓ 已删除")
+			return keyCandidate{}, true, nil
+		}
+		n, _ := strconv.Atoi(s)
+		if n >= 1 && n <= len(candidates) {
+			return candidates[n-1], false, nil
+		}
+	}
+}
+
+func deleteKeyRecord(providerID, id string) error {
+	keys, err := loadProviderKeys(providerID)
+	if err != nil {
+		return err
+	}
+	for i, k := range keys {
+		if k.ID != id {
+			continue
+		}
+		if err := secretDelete(providerID, k.Backend, k.Ref); err != nil {
+			return err
+		}
+		keys = append(keys[:i], keys[i+1:]...)
+		return saveProviderKeys(providerID, keys)
+	}
+	return fmt.Errorf("key 不存在")
+}
+
+func addNamedKey(p *Provider, region, cli, model string) (string, error) {
+	keys, err := loadProviderKeys(p.providerID())
+	if err != nil {
+		return "", err
+	}
+	var names []string
+	for _, k := range keys {
+		if k.Plan == p.planID() && k.Region == region {
+			names = append(names, k.Name)
+		}
+	}
+	def := nextKeyName(names)
+	fmt.Fprintf(os.Stderr, "\n已有 key 名称: %s\n", emptyAs(strings.Join(names, ", "), "(无)"))
+	name := promptLine("新 key 名称（回车用 " + def + "）: ")
+	if name == "" {
+		name = def
+	}
+	if len(name) > 64 || strings.ContainsAny(name, "\r\n\t") {
+		return "", fmt.Errorf("key 名称不合法（最长 64 字符，不能含控制字符）")
+	}
+	for _, k := range keys {
+		if k.Plan == p.planID() && k.Region == region && k.Name == name {
+			return "", fmt.Errorf("key 名称 %q 已存在，请换一个名称", name)
+		}
+	}
+	var val string
+	intl := region == "intl"
+	for {
+		val, err = readHiddenPrompt("API key（输入隐藏，回车取消）: ")
 		if err != nil {
-			return "", fmt.Errorf("读取输入失败: %w", err)
+			return "", err
 		}
 		if val == "" {
-			return "", fmt.Errorf("已取消：未提供 %s", envName)
+			return "", fmt.Errorf("已取消")
 		}
-		// 设置期可用性检测：仅 401/403 判定 key 错（重输）；不可达/其它状态都接受。
-		if note, bad := checkKey(p, cli, model, intl, val); bad {
+		if p.planID() == "custom" {
+			proto, base := p.probeTarget(cli, intl)
+			fmt.Fprintln(os.Stderr, "探测自定义端点…")
+			reachable, code, msg := probe(proto, base, model, val)
+			if !reachable || code < 200 || code >= 300 {
+				fmt.Fprintln(os.Stderr, msg)
+				fmt.Fprintln(os.Stderr, "↻ 检测未通过，请重新输入 key")
+				continue
+			}
+		} else if note, bad := checkKey(p, cli, model, intl, val); bad {
 			fmt.Fprintln(os.Stderr, note)
-			fmt.Fprintln(os.Stderr, "↻ key 无效，请重新输入（回车取消）")
+			fmt.Fprintln(os.Stderr, "↻ key 无效，请重新输入")
 			continue
 		} else if note != "" {
 			fmt.Fprintln(os.Stderr, note)
 		}
-		// 默认保存（keys.env，权限 600），下次免输——不再逐次询问，保持工具轻量。
-		saveKey(envName, val)
-		return val, nil
+		break
+	}
+	id := randomID()
+	ref := fmt.Sprintf("provider/%s/key/%s", p.providerID(), id)
+	backend, err := secretSet(p.providerID(), ref, val)
+	if err != nil {
+		return "", err
+	}
+	rec := KeyRecord{ID: id, Name: name, Plan: p.planID(), Region: region, Backend: backend, Ref: ref}
+	keys = append(keys, rec)
+	if err := saveProviderKeys(p.providerID(), keys); err != nil {
+		_ = secretDelete(p.providerID(), backend, ref)
+		return "", err
+	}
+	if backend == "file" {
+		fmt.Fprintln(os.Stderr, "⚠ 系统 keychain 不可用；key 已以明文存入 600 权限文件")
+	}
+	fmt.Fprintf(os.Stderr, "✓ 已保存 key %q [%s]\n", name, backend)
+	return val, nil
+}
+
+func randomID() string {
+	b := make([]byte, 8)
+	if _, err := rand.Read(b); err != nil {
+		return fmt.Sprintf("key-%d", os.Getpid())
+	}
+	return hex.EncodeToString(b)
+}
+
+func planDisplay(s string) string {
+	if s == "coding" {
+		return "Coding Plan"
+	}
+	return s
+}
+func regionDisplay(s string) string {
+	if s == "intl" {
+		return "海外"
+	}
+	return "国内"
+}
+func emptyAs(s, fallback string) string {
+	if s == "" {
+		return fallback
+	}
+	return s
+}
+
+func nextKeyName(existing []string) string {
+	used := map[string]bool{}
+	for _, name := range existing {
+		used[name] = true
+	}
+	for i := 1; ; i++ {
+		name := fmt.Sprintf("key%d", i)
+		if !used[name] {
+			return name
+		}
 	}
 }
 
-// checkKey 设置期校验 key 是否被端点接受。
-//   - 仅当端点明确返回 401/403 才判定 key 错（badKey=true，调用方应让用户重输）。
-//   - 不可达、或 400/429 等非鉴权错误，都视为 key 可用——端点/模型问题不该挡住一个正确的 key。
-//
-// 返回 note：给人看的说明（2xx 时为空，静默）。
 func checkKey(p *Provider, cli, model string, intl bool, key string) (note string, badKey bool) {
 	proto, base := p.probeTarget(cli, intl)
 	if base == "" {
-		return "", false // 无可探测端点（不应发生），跳过检测
+		return "", false
 	}
 	fmt.Fprintln(os.Stderr, "检测 key…")
 	reachable, code, msg := probe(proto, base, model, key)
@@ -143,32 +391,16 @@ func checkKey(p *Provider, cli, model string, intl bool, key string) (note strin
 	case code < 200 || code >= 300:
 		return msg + "（key 鉴权已通过，已保存）", false
 	default:
-		return "", false // 2xx
+		return "", false
 	}
 }
 
-// chooseIntl 让用户在国内/海外端点间选择，默认国内。
 func chooseIntl(p *Provider) bool {
-	fmt.Fprintf(os.Stderr, "选择端点（输入不回显）：\n  1) 国内  %s   （默认，回车）\n  2) 海外  %s\n", p.host(false), p.host(true))
-	fmt.Fprint(os.Stderr, "请选择 [1]: ")
-	s, err := readHidden()
-	fmt.Fprintln(os.Stderr)
-	if err != nil {
-		return false
-	}
-	if s == "2" {
-		fmt.Fprintf(os.Stderr, "→ 已选海外 %s\n", p.host(true))
-		return true
-	}
-	fmt.Fprintf(os.Stderr, "→ 已选国内 %s\n", p.host(false))
-	return false
+	fmt.Fprintf(os.Stderr, "选择端点:\n  1) 国内  %s（默认）\n  2) 海外  %s\n", p.host(false), p.host(true))
+	s := promptLine("请选择 [1]: ")
+	return s == "2"
 }
 
-// readHidden 隐藏回显地读一行。
-//   - TTY：用 term.ReadPassword 关回显（交互场景，key 不被看见）。
-//   - 非 TTY（管道/重定向）：回显本就无法控制，退化为读一行（保证脚本/管道可喂入）。
-//
-// 所有交互读取统一走这里，避免 bufio 缓冲与 term 直读混用导致管道输入错位。
 func readHidden() (string, error) {
 	if !term.IsTerminal(int(os.Stdin.Fd())) {
 		return readLineCooked(), nil
@@ -178,20 +410,4 @@ func readHidden() (string, error) {
 		return "", err
 	}
 	return strings.TrimSpace(string(b)), nil
-}
-
-func saveKey(envName, val string) {
-	f := keysFile()
-	_ = os.MkdirAll(filepath.Dir(f), 0o700)
-	content, _ := os.ReadFile(f)
-	s := string(content)
-	if s != "" && !strings.HasSuffix(s, "\n") {
-		s += "\n"
-	}
-	s += envName + "=" + val + "\n"
-	if err := os.WriteFile(f, []byte(s), 0o600); err == nil {
-		fmt.Fprintf(os.Stderr, "✅ 已保存（权限 600）\n")
-	} else {
-		fmt.Fprintf(os.Stderr, "⚠️  保存失败: %v\n", err)
-	}
 }

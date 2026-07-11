@@ -16,6 +16,13 @@ const helpText = `ez-switch — 快速切换模型（一个工具，三个入口
 用法:
   cdx|cld|opc <别名> [-m 模型] [-y] [--intl] [--dry-run] [-- 透传给底层CLI的参数...]
 
+配置命令:
+  config             列出当前 CLI 可用的 provider 与 key 状态（不显示 key）
+  add                增加 provider 或为已有 provider 添加具名 key
+  set-key <别名>  为 provider 增加另一个具名 key
+  remove <别名>   删除 provider 的本地 key/配置（需确认）
+  update             从受信 HTTPS 源更新 catalog（不更新二进制）
+
 选项:
   -m, --model <id>   覆盖模型 id
   -y, --yes          跳过权限/审批（claude/codex）；opencode 写入宽松权限配置
@@ -41,6 +48,25 @@ const helpText = `ez-switch — 快速切换模型（一个工具，三个入口
 func main() {
 	prog := filepath.Base(os.Args[0])
 	args := os.Args[1:]
+	cli := ""
+	switch prog {
+	case "cdx":
+		cli = "codex"
+	case "cld":
+		cli = "claude"
+	case "opc":
+		cli = "opencode"
+	}
+
+	if len(args) > 0 && args[0] == "update" {
+		if len(args) != 1 {
+			fail("update 不接受额外参数")
+		}
+		if err := runCatalogUpdate(); err != nil {
+			fail(err.Error())
+		}
+		return
+	}
 
 	if len(args) == 0 || hasAny(args, "-h", "--help", "help") {
 		fmt.Print(helpText)
@@ -53,19 +79,48 @@ func main() {
 	}
 
 	// argv[0] 决定目标 CLI：cdx→codex, cld→claude, opc→opencode
-	cli := ""
-	switch prog {
-	case "cdx":
-		cli = "codex"
-	case "cld":
-		cli = "claude"
-	case "opc":
-		cli = "opencode"
-	default:
+	if cli == "" {
 		// 以 ez-switch（或其它名字）直接运行：只显示帮助/对照表，不启动
 		fmt.Print(helpText)
 		printTable()
 		return
+	}
+
+	if len(args) > 0 {
+		switch args[0] {
+		case "config":
+			if len(args) != 1 {
+				fail("config 不接受额外参数")
+			}
+			if err := printConfig(cli); err != nil {
+				fail(err.Error())
+			}
+			return
+		case "add":
+			if len(args) != 1 {
+				fail("add 不接受额外参数")
+			}
+			if err := runAdd(cli); err != nil {
+				fail(err.Error())
+			}
+			return
+		case "set-key":
+			if len(args) != 2 {
+				fail("set-key 需要一个 provider 别名")
+			}
+			if err := runSetKey(cli, args[1]); err != nil {
+				fail(err.Error())
+			}
+			return
+		case "remove":
+			if len(args) != 2 {
+				fail("remove 需要一个 provider 别名")
+			}
+			if err := runRemove(args[1]); err != nil {
+				fail(err.Error())
+			}
+			return
+		}
 	}
 
 	var alias, model string
@@ -152,12 +207,18 @@ func main() {
 		err = launchOpencode(r.Prov, chosen, skip, intl, passthrough)
 	}
 	if err != nil {
+		if ee, ok := err.(interface{ ExitCode() int }); ok {
+			os.Exit(ee.ExitCode())
+		}
 		fail(err.Error())
 	}
 }
 
 func hasAny(args []string, flags ...string) bool {
 	for _, a := range args {
+		if a == "--" {
+			return false
+		}
 		for _, f := range flags {
 			if a == f {
 				return true
@@ -180,7 +241,7 @@ func printTable() {
 		pad("别名", 8) + pad("版本别名", 26) + pad("厂商", 30) + pad("默认模型", 36) +
 		pad("claude", 7) + pad("codex", 7) + pad("opencode", 9) + "intl")
 	fmt.Println("  " + strings.Repeat("-", 126))
-	all := append([]Provider{}, providers...)
+	all := append([]Provider{}, catalogProviders()...)
 	all = append(all, loadCustomProfiles()...)
 	for i := range all {
 		p := &all[i]

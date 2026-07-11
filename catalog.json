@@ -1,0 +1,119 @@
+{
+  "version": 1,
+  "revision": "2026-07-10.3",
+  "providers": [
+    {
+      "id": "glm",
+      "alias": "glm",
+      "name": "智谱 GLM（按量计费 API）",
+      "plan": "standard",
+      "claude_url": "https://open.bigmodel.cn/api/anthropic",
+      "openai_url": "https://open.bigmodel.cn/api/paas/v4",
+      "key_env": "GLM_KEY",
+      "cli": ["claude", "codex", "opencode"],
+      "models": [
+        {"id": "glm-5.2", "tag": "glm52", "latest": true},
+        {"id": "glm-5.1", "tag": "glm51", "latest": false},
+        {"id": "glm-4.7", "tag": "glm47", "latest": false}
+      ]
+    },
+    {
+      "id": "glm",
+      "alias": "glmc",
+      "name": "智谱 GLM Coding Plan（订阅）",
+      "plan": "coding",
+      "claude_url": "https://open.bigmodel.cn/api/anthropic",
+      "openai_url": "https://open.bigmodel.cn/api/coding/paas/v4",
+      "key_env": "GLM_CODING_KEY",
+      "cli": ["claude", "codex", "opencode"],
+      "models": [{"id": "glm-5.2", "tag": "", "latest": true}]
+    },
+    {
+      "id": "kimi",
+      "alias": "kimi",
+      "name": "Moonshot Kimi（按量计费 API）",
+      "plan": "standard",
+      "openai_url": "https://api.moonshot.cn/v1",
+      "key_env": "KIMI_KEY",
+      "cli": ["codex", "opencode"],
+      "models": [{"id": "kimi-k2.6", "tag": "kimi26", "latest": true}]
+    },
+    {
+      "id": "kimi",
+      "alias": "kimic",
+      "name": "Kimi for Coding（订阅）",
+      "plan": "coding",
+      "claude_url": "https://api.kimi.com/coding",
+      "key_env": "KIMI_CODING_KEY",
+      "cli": ["claude", "opencode"],
+      "models": [{"id": "kimi-for-coding", "tag": "", "latest": true}]
+    },
+    {
+      "id": "minimax",
+      "alias": "m",
+      "name": "MiniMax",
+      "plan": "standard",
+      "claude_url": "https://api.minimaxi.com/anthropic",
+      "openai_url": "https://api.minimaxi.com/v1",
+      "claude_url_intl": "https://api.minimax.io/anthropic",
+      "openai_url_intl": "https://api.minimax.io/v1",
+      "key_env": "MINIMAX_KEY",
+      "cli": ["claude", "codex", "opencode"],
+      "models": [
+        {"id": "MiniMax-M3", "tag": "m3", "latest": true},
+        {"id": "MiniMax-M2.7-highspeed", "tag": "m27", "latest": false}
+      ]
+    },
+    {
+      "id": "doubao",
+      "alias": "doubao",
+      "name": "火山方舟 Doubao",
+      "plan": "standard",
+      "claude_url": "https://ark.cn-beijing.volces.com/api/compatible",
+      "openai_url": "https://ark.cn-beijing.volces.com/api/v3",
+      "claude_url_intl": "https://ark.ap-southeast.bytepluses.com/api/compatible",
+      "openai_url_intl": "https://ark.ap-southeast.bytepluses.com/api/v3",
+      "key_env": "ARK_API_KEY",
+      "cli": ["claude", "codex", "opencode"],
+      "models": [{"id": "doubao-seed-code-preview-latest", "tag": "doubao-code", "latest": true}]
+    },
+    {
+      "id": "nvidia",
+      "alias": "nv",
+      "name": "Nvidia NIM",
+      "plan": "standard",
+      "openai_url": "https://integrate.api.nvidia.com/v1",
+      "key_env": "NVIDIA_API_KEY",
+      "cli": ["codex", "opencode"],
+      "models": [{"id": "openai/gpt-oss-120b", "tag": "nvgpt", "latest": true}]
+    },
+    {
+      "id": "deepseek",
+      "alias": "ds",
+      "name": "DeepSeek",
+      "plan": "standard",
+      "claude_url": "https://api.deepseek.com/anthropic",
+      "openai_url": "https://api.deepseek.com",
+      "key_env": "DEEPSEEK_API_KEY",
+      "cli": ["claude", "codex", "opencode"],
+      "models": [
+        {"id": "deepseek-v4-flash", "tag": "dsv4f", "latest": true},
+        {"id": "deepseek-v4-pro", "tag": "dsv4p", "latest": false}
+      ]
+    },
+    {
+      "id": "siliconflow",
+      "alias": "sf",
+      "name": "SiliconFlow 硅基流动",
+      "plan": "standard",
+      "openai_url": "https://api.siliconflow.cn",
+      "openai_url_intl": "https://api.siliconflow.com",
+      "key_env": "SILICONFLOW_KEY",
+      "cli": ["codex", "opencode"],
+      "models": [
+        {"id": "deepseek-ai/DeepSeek-V4-Flash", "tag": "sfv4f", "latest": true},
+        {"id": "deepseek-ai/DeepSeek-V4-Pro", "tag": "sfv4p", "latest": false}
+      ]
+    }
+  ]
+}

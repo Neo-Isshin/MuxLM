@@ -19,50 +19,104 @@ type CustomProfile struct {
 }
 
 func customFile() string {
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".config", "cx", "custom.json")
+	return filepath.Join(configDir(), "custom.json")
 }
 
 // loadCustomProfiles 读 custom.json，转成可挂进索引的 Provider 列表。
 func loadCustomProfiles() []Provider {
-	data, err := os.ReadFile(customFile())
+	var out []Provider
+	seen := map[string]bool{}
+	entries, _ := os.ReadDir(providersDir())
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		data, err := readPrivateFile(filepath.Join(providersDir(), entry.Name(), "provider.json"))
+		if err != nil {
+			continue
+		}
+		var f customProviderFile
+		if json.Unmarshal(data, &f) == nil && f.Version == 1 && validateStoredCustomProvider(&f.Provider, entry.Name()) == nil {
+			out = append(out, f.Provider)
+			seen[f.Provider.Alias] = true
+		} else {
+			fmt.Fprintf(os.Stderr, "⚠ 忽略无效自定义 provider: %s\n", entry.Name())
+		}
+	}
+	// v1 兼容：旧 custom.json 仍可使用，但新增 provider 不再将 key 内联写入它。
+	data, err := readPrivateFile(customFile())
 	if err != nil {
-		return nil
+		return out
 	}
 	var m map[string]CustomProfile
 	if err := json.Unmarshal(data, &m); err != nil {
-		return nil
+		return out
 	}
-	var out []Provider
 	for name, c := range m {
+		if seen[name] {
+			continue
+		}
 		out = append(out, profileToProvider(name, c))
 	}
 	return out
 }
 
-func saveCustomProfile(name string, c CustomProfile) {
-	f := customFile()
-	_ = os.MkdirAll(filepath.Dir(f), 0o700)
-	m := map[string]CustomProfile{}
-	if data, err := os.ReadFile(f); err == nil {
-		_ = json.Unmarshal(data, &m)
+func validateStoredCustomProvider(p *Provider, dirName string) error {
+	if p.ID != dirName || !strings.HasPrefix(p.ID, "custom-") || safeID(p.ID) != p.ID {
+		return fmt.Errorf("非法 provider id")
 	}
-	m[name] = c
-	b, _ := json.MarshalIndent(m, "", "  ")
-	if err := os.WriteFile(f, b, 0o600); err == nil {
-		fmt.Fprintf(os.Stderr, "✅ 已保存为自定义别名 '%s'（出现在 `cld list` 中）\n", name)
-	} else {
-		fmt.Fprintf(os.Stderr, "⚠️  保存失败: %v\n", err)
+	if p.Alias == "" || safeID(p.Alias) != p.Alias || p.Plan != "custom" {
+		return fmt.Errorf("非法 alias/plan")
 	}
+	if !validEnvName(p.KeyEnv) || p.Key != "" {
+		return fmt.Errorf("非法 key 元数据")
+	}
+	if len(p.Models) != 1 || p.Models[0].ID == "" || !p.Models[0].Latest {
+		return fmt.Errorf("自定义 provider 必须有一个 latest model")
+	}
+	endpoints := 0
+	for _, endpoint := range []string{p.ClaudeURL, p.OpenAIURL} {
+		if endpoint == "" {
+			continue
+		}
+		endpoints++
+		if err := validateEndpoint(endpoint, true); err != nil {
+			return err
+		}
+	}
+	if endpoints != 1 {
+		return fmt.Errorf("自定义 provider 必须有一个端点")
+	}
+	for _, cli := range p.CLI {
+		if cli != "claude" && cli != "codex" && cli != "opencode" {
+			return fmt.Errorf("非法 CLI")
+		}
+	}
+	return nil
+}
+
+func validEnvName(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i, r := range s {
+		if !(r >= 'A' && r <= 'Z' || r == '_' || i > 0 && r >= '0' && r <= '9') {
+			return false
+		}
+	}
+	return true
 }
 
 // profileToProvider 把自定义端点包装成 Provider，复用现有启动路径。
 func profileToProvider(name string, c CustomProfile) Provider {
 	p := Provider{
-		Alias: name,
-		Name:  "自定义 · " + hostOf(c.Base),
-		Key:   c.Key,
-		CLI:   cliForProtocol(c.Protocol),
+		ID:     "custom-" + safeID(name),
+		Alias:  name,
+		Name:   "自定义 · " + hostOf(c.Base),
+		Plan:   "custom",
+		KeyEnv: "CX_" + strings.ToUpper(strings.ReplaceAll(safeID(name), "-", "_")) + "_KEY",
+		Key:    c.Key,
+		CLI:    cliForProtocol(c.Protocol),
 		// 单模型，无需版本别名——用裸别名 <name> 即可，避免表格里 版本别名 与 别名 重复。
 		Models: []Model{{ID: c.Model, Tag: "", Latest: true}},
 	}
@@ -81,63 +135,10 @@ func cliForProtocol(proto string) []string {
 	return []string{"codex", "opencode"}
 }
 
-// runCustom 是 `cld/cdx/opc custom` 的入口：
-// 交互输入 → 可用性探测（不通过则重新输入）→ 保存为别名 → 启动。
-// 设置是一次性的：保存后日常用别名直接启动，不再探测（详见 keys.go 的 getKey 缓存逻辑）。
+// runCustom 保留 v1 命令兼容，新实现统一转到 add。
 func runCustom(cli string, skip bool, pass []string) error {
-	fmt.Fprintf(os.Stderr, "\n🛠  自定义端点（目标 CLI: %s）\n", cli)
-	var base, model, key, protocol string
-	for {
-		base = strings.TrimRight(promptLine("端点 base URL（留空取消）: "), "/")
-		if base == "" {
-			return fmt.Errorf("已取消")
-		}
-		model = promptLine("model id: ")
-		k, err := readHiddenPrompt("API key（输入隐藏）: ")
-		if err != nil {
-			return fmt.Errorf("读取 key 失败: %w", err)
-		}
-		key = k
-		protocol = "openai"
-		if cli == "claude" {
-			protocol = "anthropic"
-		} else if cli == "opencode" {
-			protocol = promptProtocol()
-		}
-		if model == "" || key == "" {
-			fmt.Fprintln(os.Stderr, "⚠ model / key 不能为空，请重新输入")
-			continue
-		}
-
-		// 设置期可用性检测：custom 走严格标准（必须 2xx，验证 端点+模型+key 整条链路）。
-		fmt.Fprintln(os.Stderr, "探测中…")
-		reachable, code, msg := probe(protocol, base, model, key)
-		fmt.Fprintln(os.Stderr, msg)
-		if reachable && code >= 200 && code < 300 {
-			break // 通过
-		}
-		fmt.Fprintln(os.Stderr, "↻ 检测未通过，请重新输入")
-	}
-
-	// 探测通过 → 默认保存为别名（用户长期使用，不存在用完即弃）。默认名取域名，可改。
-	defName := hostOf(base)
-	name := promptLine("保存为别名（回车用 " + defName + "）: ")
-	if name == "" {
-		name = defName
-	}
-	saveCustomProfile(name, CustomProfile{Protocol: protocol, Base: base, Model: model, Key: key})
-
-	// 复用标准启动路径（inline key，getKey 会早返回、不再探测）。
-	p := profileToProvider(name, CustomProfile{Protocol: protocol, Base: base, Model: model, Key: key})
-	switch cli {
-	case "claude":
-		return launchClaude(&p, model, skip, false, pass)
-	case "codex":
-		return launchCodex(&p, model, skip, false, pass)
-	case "opencode":
-		return launchOpencode(&p, model, skip, false, pass)
-	}
-	return nil
+	fmt.Fprintln(os.Stderr, "`custom` 已合并到 `add`；本次只保存 provider，不会自动启动底层 CLI。")
+	return runAddCustom(cli)
 }
 
 // probe 发一个最小请求探测端点，返回 reachable（是否收到 HTTP 响应）、HTTP code、人读说明。
@@ -167,12 +168,13 @@ func probe(protocol, base, model, key string) (reachable bool, code int, msg str
 		for k, v := range headers {
 			req.Header.Set(k, v)
 		}
+		// #nosec G704 -- 这是本地 CLI 用户明确配置的 provider 端点，非远程服务器代理入参。
 		resp, err := client.Do(req)
 		if err != nil {
 			continue // 网络/超时；若有备用 URL 继续试
 		}
 		code = resp.StatusCode
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		reachable = true
 		if code == 404 && len(urls) > 1 && u == urls[0] {
 			continue // openai：换 /v1/ 重试

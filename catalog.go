@@ -1,28 +1,49 @@
 package main
 
-import "strings"
+import (
+	"encoding/json"
+	"fmt"
+	"os"
+	"strings"
+)
 
 // Model 是某个 provider 下的一个具体模型。
 type Model struct {
-	ID     string // 真实模型 id，如 "glm-5.2"，会带版本号
-	Tag    string // 版本别名，如 "glm52"；为空表示无独立别名
-	Latest bool   // 是否当前最新（裸别名 alias 解析到这条）
+	ID     string `json:"id"`     // 真实模型 id，如 "glm-5.2"，会带版本号
+	Tag    string `json:"tag"`    // 版本别名，如 "glm52"；为空表示无独立别名
+	Latest bool   `json:"latest"` // 是否当前最新（裸别名 alias 解析到这条）
 }
 
 // Provider 是一个可切换的供应商。
 // 同一厂商区分 国内(cn,默认) / 海外(intl) 两套端点。
 type Provider struct {
-	Alias         string   // 裸别名，永远指向 Latest 模型，如 "glm"
-	Name          string   // 展示名
-	ClaudeURL     string   // anthropic 端点（claude 用；opencode 在无 openai 端点时回退到此）
-	OpenAIURL     string   // openai 端点（codex 用；opencode 优先用此）
-	ClaudeURLIntl string   // 海外 anthropic 端点（可选）
-	OpenAIURLIntl string   // 海外 openai 端点（可选）
-	KeyEnv        string   // 读取 key 的环境变量名
-	Key           string   // 内联 key（custom 自定义别名用；非空时 getKey 直接返回，不走 env）
-	CLI           []string // 支持的 CLI：claude / codex / opencode 的子集（由端点协议决定，无代理）
-	WireAPI       string   // codex 的 wire_api：chat(默认) / responses
-	Models        []Model
+	ID            string   `json:"id"`             // provider 稳定 ID；同一 provider 的多个套餐/路由共用
+	Alias         string   `json:"alias"`          // 裸别名，永远指向 Latest 模型，如 "glm"
+	Name          string   `json:"name"`           // 展示名
+	Plan          string   `json:"plan,omitempty"` // 套餐/密钥类型，如 standard / coding
+	ClaudeURL     string   `json:"claude_url,omitempty"`
+	OpenAIURL     string   `json:"openai_url,omitempty"`
+	ClaudeURLIntl string   `json:"claude_url_intl,omitempty"`
+	OpenAIURLIntl string   `json:"openai_url_intl,omitempty"`
+	KeyEnv        string   `json:"key_env"` // 该套餐的兼容环境变量名
+	Key           string   `json:"-"`       // 仅用于读取旧 custom.json，永不输出到 catalog
+	CLI           []string `json:"cli"`
+	WireAPI       string   `json:"wire_api,omitempty"`
+	Models        []Model  `json:"models"`
+}
+
+func (p *Provider) providerID() string {
+	if p.ID != "" {
+		return p.ID
+	}
+	return p.Alias
+}
+
+func (p *Provider) planID() string {
+	if p.Plan != "" {
+		return p.Plan
+	}
+	return "standard"
 }
 
 func (p *Provider) supports(cli string) bool {
@@ -113,6 +134,7 @@ func hostOf(u string) string {
 // 端点取自 cc-switch 社区 catalog（MIT）并按需核对；带 Intl 的为国内/海外双端点。
 var providers = []Provider{
 	{
+		ID:        "glm",
 		Alias:     "glm",
 		Name:      "智谱 GLM（按量计费 API）",
 		ClaudeURL: "https://open.bigmodel.cn/api/anthropic",
@@ -126,6 +148,8 @@ var providers = []Provider{
 		},
 	},
 	{
+		ID:   "glm",
+		Plan: "coding",
 		// GLM Coding Plan（订阅）：anthropic 端点与按量计费相同（用 key 区分套餐）；
 		// openai 协议必须用 Coding 专属端点 /api/coding/paas/v4。模型 id 不变。
 		Alias:     "glmc",
@@ -139,6 +163,7 @@ var providers = []Provider{
 		},
 	},
 	{
+		ID: "kimi",
 		// 普通 Kimi API 为 openai 协议（/v1）。注意：/anthropic 与 /coding 都是 Coding 订阅端点，
 		// 且只接受 kimi-for-coding，发 kimi-k2.x 会被拒——见下面的 kimic。
 		Alias:     "kimi",
@@ -151,6 +176,8 @@ var providers = []Provider{
 		},
 	},
 	{
+		ID:   "kimi",
+		Plan: "coding",
 		// Kimi for Coding（订阅）：anthropic 端点 api.kimi.com/coding（注意与普通 api.moonshot.cn 不同域），
 		// 模型必须是 kimi-for-coding（kimi-k2.x 会被拒）。实测 api.moonshot.cn/coding 返回 404，已弃用。
 		Alias:     "kimic",
@@ -163,6 +190,7 @@ var providers = []Provider{
 		},
 	},
 	{
+		ID:            "minimax",
 		Alias:         "m",
 		Name:          "MiniMax",
 		ClaudeURL:     "https://api.minimaxi.com/anthropic",
@@ -177,6 +205,7 @@ var providers = []Provider{
 		},
 	},
 	{
+		ID:            "doubao",
 		Alias:         "doubao",
 		Name:          "火山方舟 Doubao",
 		ClaudeURL:     "https://ark.cn-beijing.volces.com/api/compatible",
@@ -186,20 +215,22 @@ var providers = []Provider{
 		KeyEnv:        "ARK_API_KEY",
 		CLI:           []string{"claude", "codex", "opencode"},
 		Models: []Model{
-			{ID: "doubao-seed-2-0-code-preview-latest", Tag: "doubao", Latest: true},
+			{ID: "doubao-seed-code-preview-latest", Tag: "doubao-code", Latest: true},
 		},
 	},
 	{
+		ID:        "nvidia",
 		Alias:     "nv",
 		Name:      "Nvidia NIM",
 		OpenAIURL: "https://integrate.api.nvidia.com/v1",
 		KeyEnv:    "NVIDIA_API_KEY",
 		CLI:       []string{"codex", "opencode"},
 		Models: []Model{
-			{ID: "meta/llama-3.1-405b-instruct", Tag: "nvl", Latest: true},
+			{ID: "openai/gpt-oss-120b", Tag: "nvgpt", Latest: true},
 		},
 	},
 	{
+		ID:        "deepseek",
 		Alias:     "ds",
 		Name:      "DeepSeek",
 		ClaudeURL: "https://api.deepseek.com/anthropic",
@@ -207,19 +238,43 @@ var providers = []Provider{
 		KeyEnv:    "DEEPSEEK_API_KEY",
 		CLI:       []string{"claude", "codex", "opencode"},
 		Models: []Model{
-			{ID: "deepseek-chat", Tag: "dsc", Latest: true},
-			{ID: "deepseek-reasoner", Tag: "dsr"},
+			{ID: "deepseek-v4-flash", Tag: "dsv4f", Latest: true},
+			{ID: "deepseek-v4-pro", Tag: "dsv4p"},
 		},
 	},
 	{
+		ID:            "siliconflow",
 		Alias:         "sf",
 		Name:          "SiliconFlow 硅基流动",
 		OpenAIURL:     "https://api.siliconflow.cn",
 		OpenAIURLIntl: "https://api.siliconflow.com",
 		KeyEnv:        "SILICONFLOW_KEY",
 		CLI:           []string{"codex", "opencode"},
-		Models:        []Model{{ID: "deepseek-ai/DeepSeek-V3", Tag: "sfv3", Latest: true}},
+		Models: []Model{
+			{ID: "deepseek-ai/DeepSeek-V4-Flash", Tag: "sfv4f", Latest: true},
+			{ID: "deepseek-ai/DeepSeek-V4-Pro", Tag: "sfv4p"},
+		},
 	},
+}
+
+type CatalogFile struct {
+	Version   int        `json:"version"`
+	Revision  string     `json:"revision"`
+	Providers []Provider `json:"providers"`
+}
+
+// catalogProviders 优先使用 update 下载的本地 catalog，无效时安全回退到内置版本。
+func catalogProviders() []Provider {
+	data, err := readPrivateFile(catalogCacheFile())
+	if err != nil {
+		return providers
+	}
+	var c CatalogFile
+	if json.Unmarshal(data, &c) != nil || validateCatalog(&c) != nil {
+		fmt.Fprintln(os.Stderr, "⚠ 本地 catalog 无效，已回退到内置版本")
+		return providers
+	}
+	return c.Providers
 }
 
 // Resolved 是别名解析结果。
@@ -250,7 +305,7 @@ func buildIndex() map[string]Resolved {
 			}
 		}
 	}
-	add(providers)
+	add(catalogProviders())
 	add(loadCustomProfiles())
 	return idx
 }

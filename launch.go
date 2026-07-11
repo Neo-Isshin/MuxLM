@@ -24,11 +24,9 @@ func launchClaude(p *Provider, model string, skip, intl bool, pass []string) err
 		args = append(args, "--dangerously-skip-permissions")
 	}
 	args = append(args, pass...)
+	// #nosec G204 G702 -- 参数传给用户明确请求的底层 CLI，exec.Command 不经过 shell。
 	cmd := exec.Command("claude", args...)
-	cmd.Env = append(os.Environ(),
-		"ANTHROPIC_BASE_URL="+url,
-		"ANTHROPIC_AUTH_TOKEN="+key,
-	)
+	cmd.Env = childEnv(map[string]string{"ANTHROPIC_BASE_URL": url, "ANTHROPIC_AUTH_TOKEN": key})
 	return run(cmd)
 }
 
@@ -46,6 +44,7 @@ func launchCodex(p *Provider, model string, skip, intl bool, pass []string) erro
 	if err != nil {
 		return err
 	}
+	defer os.RemoveAll(dir)
 	ab, _ := json.Marshal(map[string]string{"OPENAI_API_KEY": key})
 	if err := os.WriteFile(filepath.Join(dir, "auth.json"), ab, 0o600); err != nil {
 		return err
@@ -57,6 +56,7 @@ name = "cx"
 base_url = %q
 wire_api = %q
 `, model, url, p.wireAPI())
+	// #nosec G703 -- dir 由 MkdirTemp 创建，文件名是固定字面量。
 	if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte(toml), 0o600); err != nil {
 		return err
 	}
@@ -65,8 +65,9 @@ wire_api = %q
 		args = append(args, "--dangerously-bypass-approvals-and-sandbox")
 	}
 	args = append(args, pass...)
+	// #nosec G204 G702 -- 参数传给用户明确请求的底层 CLI，exec.Command 不经过 shell。
 	cmd := exec.Command("codex", args...)
-	cmd.Env = append(os.Environ(), "CODEX_HOME="+dir)
+	cmd.Env = childEnv(map[string]string{"CODEX_HOME": dir})
 	return run(cmd)
 }
 
@@ -89,6 +90,7 @@ func launchOpencode(p *Provider, model string, skip, intl bool, pass []string) e
 	if err != nil {
 		return err
 	}
+	defer os.RemoveAll(dir)
 	cfg := map[string]any{
 		"$schema": "https://opencode.ai/config.json",
 		"provider": map[string]any{
@@ -106,10 +108,8 @@ func launchOpencode(p *Provider, model string, skip, intl bool, pass []string) e
 		},
 	}
 	if skip {
-		// opencode 无 --dangerously-bypass flag；通过配置放宽权限 + run --force
-		cfg["permission"] = map[string]any{
-			"bash": "allow", "edit": "allow", "webfetch": "allow",
-		}
+		// opencode 通过 permission 配置 + --auto 自动批准。
+		cfg["permission"] = "allow"
 	}
 	cb, _ := json.MarshalIndent(cfg, "", "  ")
 	if err := os.WriteFile(filepath.Join(dir, "opencode.json"), cb, 0o600); err != nil {
@@ -117,11 +117,12 @@ func launchOpencode(p *Provider, model string, skip, intl bool, pass []string) e
 	}
 	args := []string{"--model", "cx/" + model}
 	if skip {
-		args = append(args, "--force")
+		args = append(args, "--auto")
 	}
 	args = append(args, pass...)
+	// #nosec G204 G702 -- 参数传给用户明确请求的底层 CLI，exec.Command 不经过 shell。
 	cmd := exec.Command("opencode", args...)
-	cmd.Env = append(os.Environ(), "OPENCODE_CONFIG_DIR="+dir)
+	cmd.Env = childEnv(map[string]string{"OPENCODE_CONFIG_DIR": dir})
 	return run(cmd)
 }
 
@@ -131,9 +132,6 @@ func run(cmd *exec.Cmd) error {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
-		if ee, ok := err.(*exec.ExitError); ok {
-			os.Exit(ee.ExitCode())
-		}
 		return err
 	}
 	return nil
@@ -147,10 +145,7 @@ func preview(cli string, p *Provider, model string, skip, intl bool, pass []stri
 		keyDesc = "key=内联(自定义别名)"
 	} else {
 		envName := p.keyEnv(intl)
-		status := "已设置"
-		if loadKeys()[envName] == "" {
-			status = "未设置(将交互输入)"
-		}
+		status := configuredKeyStatus(p, intl)
 		keyDesc = envName + "=" + status
 	}
 	fmt.Printf("【DRY-RUN】 %s | %s | model=%s | skip=%v | intl=%v | %s\n",
@@ -164,6 +159,7 @@ func preview(cli string, p *Provider, model string, skip, intl bool, pass []stri
 		args = append(args, pass...)
 		tokenSrc := "$" + p.keyEnv(intl)
 		if p.Key != "" {
+			// #nosec G101 -- 仅为脱敏状态标签，不是凭据。
 			tokenSrc = "(内联)"
 		}
 		fmt.Printf("  env  ANTHROPIC_BASE_URL=%s  ANTHROPIC_AUTH_TOKEN=%s\n", p.claudeURL(intl), tokenSrc)
@@ -179,7 +175,7 @@ func preview(cli string, p *Provider, model string, skip, intl bool, pass []stri
 	case "opencode":
 		args := []string{"--model", "cx/" + model}
 		if skip {
-			args = append(args, "--force")
+			args = append(args, "--auto")
 		}
 		args = append(args, pass...)
 		url := p.openaiURL(intl)
@@ -194,3 +190,43 @@ func preview(cli string, p *Provider, model string, skip, intl bool, pass []stri
 }
 
 func joinArgs(a []string) string { return strings.Join(a, " ") }
+
+func configuredKeyStatus(p *Provider, intl bool) string {
+	region := "cn"
+	if intl {
+		region = "intl"
+	}
+	c, err := keyCandidates(p, region)
+	if err != nil || len(c) == 0 {
+		return "未设置(将交互输入)"
+	}
+	return fmt.Sprintf("已设置(%d个)", len(c))
+}
+
+// childEnv 只传递当前 provider 需要的密钥，避免底层 CLI/插件继承其他 provider key。
+func childEnv(extra map[string]string) []string {
+	blocked := map[string]bool{
+		"ANTHROPIC_AUTH_TOKEN": true, "ANTHROPIC_API_KEY": true, "ANTHROPIC_BASE_URL": true,
+		"OPENAI_API_KEY": true, "CODEX_HOME": true, "OPENCODE_CONFIG_DIR": true,
+	}
+	all := append([]Provider{}, catalogProviders()...)
+	all = append(all, loadCustomProfiles()...)
+	for _, p := range all {
+		blocked[p.KeyEnv] = true
+		blocked[p.KeyEnv+"_INTL"] = true
+	}
+	var env []string
+	for _, kv := range os.Environ() {
+		name := kv
+		if i := strings.IndexByte(kv, '='); i >= 0 {
+			name = kv[:i]
+		}
+		if !blocked[name] {
+			env = append(env, kv)
+		}
+	}
+	for k, v := range extra {
+		env = append(env, k+"="+v)
+	}
+	return env
+}
