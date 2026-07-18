@@ -23,8 +23,8 @@ import (
 func isolatedConfig(t *testing.T) string {
 	t.Helper()
 	d := t.TempDir()
-	t.Setenv("CX_CONFIG_DIR", filepath.Join(d, "config"))
-	t.Setenv("CX_SECRET_BACKEND", "file")
+	t.Setenv("MUXLM_CONFIG_DIR", filepath.Join(d, "config"))
+	t.Setenv("MUXLM_SECRET_BACKEND", "file")
 	return d
 }
 

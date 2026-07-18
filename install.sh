@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# 用法: curl -fsSL https://raw.githubusercontent.com/Neo-Isshin/ProviderDeck/main/install.sh | bash
+# 用法: curl -fsSL https://raw.githubusercontent.com/Neo-Isshin/MuxLM/main/install.sh | bash
 set -euo pipefail
 
 GITHUB="${GITHUB:-https://github.com}"
 GITHUB_API="${GITHUB_API:-https://api.github.com}"
-REPO="${REPO:-Neo-Isshin/ProviderDeck}"
+REPO="${REPO:-Neo-Isshin/MuxLM}"
 BINDIR="${BINDIR:-$HOME/.local/bin}"
 FORCE="${FORCE:-0}"
 
@@ -21,7 +21,9 @@ RELEASE_API="$GITHUB_API/repos/$REPO/releases/latest"
 TAG=$(curl -fsSL -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' "$RELEASE_API" | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)
 [ -n "$TAG" ] || { echo "✗ 解析 latest tag 失败: $RELEASE_API" >&2; exit 1; }
 
-URL="$GITHUB/$REPO/releases/download/$TAG/providerdeck-$GOOS-$GOARCH"
+ASSET="muxlm-$GOOS-$GOARCH"
+LEGACY_ASSET="providerdeck-$GOOS-$GOARCH"
+URL="$GITHUB/$REPO/releases/download/$TAG/$ASSET"
 SUMS_URL="$GITHUB/$REPO/releases/download/$TAG/SHA256SUMS"
 
 mkdir -p "$BINDIR"
@@ -35,38 +37,43 @@ else
   exit 1
 fi
 
-BIN="$BINDIR/providerdeck"
-MARKER="$BINDIR/.providerdeck-install.sha256"
+BIN="$BINDIR/muxlm"
+MARKER="$BINDIR/.muxlm-install.sha256"
+PROVIDERDECK_BIN="$BINDIR/providerdeck"
+PROVIDERDECK_MARKER="$BINDIR/.providerdeck-install.sha256"
 
 validate_marker_target() {
-  if [ -L "$MARKER" ]; then
-    echo "✗ 安装 marker 是符号链接，拒绝使用: $MARKER" >&2
-    exit 1
-  fi
-  if [ -d "$MARKER" ]; then
-    echo "✗ 安装 marker 是目录，拒绝使用: $MARKER" >&2
-    exit 1
-  fi
-  if [ -e "$MARKER" ] && [ ! -f "$MARKER" ]; then
-    echo "✗ 安装 marker 不是普通文件，拒绝使用: $MARKER" >&2
-    exit 1
-  fi
+	local marker="$1"
+	if [ -L "$marker" ]; then
+		echo "✗ 安装 marker 是符号链接，拒绝使用: $marker" >&2
+		exit 1
+	fi
+	if [ -d "$marker" ]; then
+		echo "✗ 安装 marker 是目录，拒绝使用: $marker" >&2
+		exit 1
+	fi
+	if [ -e "$marker" ] && [ ! -f "$marker" ]; then
+		echo "✗ 安装 marker 不是普通文件，拒绝使用: $marker" >&2
+		exit 1
+	fi
 }
 
 managed_binary() {
-  [ -f "$MARKER" ] || return 1
-  MARKED_SHA=""
-  IFS= read -r MARKED_SHA < "$MARKER" || true
-  case "$MARKED_SHA" in
-    ""|*[!0-9a-fA-F]*) return 1 ;;
-  esac
-  [ "${#MARKED_SHA}" -eq 64 ] || return 1
-  [ "$(sha256_file "$BIN")" = "$MARKED_SHA" ]
+	local bin="$1"
+	local marker="$2"
+	local marked_sha=""
+	[ -f "$bin" ] && [ -f "$marker" ] || return 1
+	IFS= read -r marked_sha < "$marker" || true
+	case "$marked_sha" in
+		""|*[!0-9a-fA-F]*) return 1 ;;
+	esac
+	[ "${#marked_sha}" -eq 64 ] || return 1
+	[ "$(sha256_file "$bin")" = "$marked_sha" ]
 }
 
 authorize_binary_target() {
-  validate_marker_target
-  if [ -L "$BIN" ]; then
+	validate_marker_target "$MARKER"
+	if [ -L "$BIN" ]; then
     if [ "$FORCE" != "1" ]; then
       echo "✗ $BIN 是符号链接（未覆盖）；确认后可使用 FORCE=1" >&2
       exit 1
@@ -81,14 +88,16 @@ authorize_binary_target() {
     echo "✗ $BIN 不是普通文件（始终不会覆盖）" >&2
     exit 1
   fi
-  if [ -f "$BIN" ] && ! managed_binary && [ "$FORCE" != "1" ]; then
-    echo "✗ $BIN 不是此安装器管理的文件，或内容已变化（未覆盖）" >&2
+	if [ -f "$BIN" ] && ! managed_binary "$BIN" "$MARKER" && [ "$FORCE" != "1" ]; then
+		echo "✗ $BIN 不是此安装器管理的文件，或内容已变化（未覆盖）" >&2
     echo "  请先移动该文件，或确认后使用 FORCE=1 重新安装" >&2
     exit 1
   fi
 }
 
-authorize_binary_target
+authorize_providerdeck_target() {
+	validate_marker_target "$PROVIDERDECK_MARKER"
+}
 
 # Existing links made by this installer are safe to reuse. Other ordinary files
 # require FORCE=1; real directories and special files are never replaced.
@@ -98,7 +107,7 @@ validate_entry_targets() {
     if [ -L "$DEST" ]; then
       TARGET=$(readlink "$DEST")
       case "${TARGET##*/}" in
-        providerdeck|ez-switch) continue ;;
+		muxlm|providerdeck|ez-switch) continue ;;
       esac
       if [ "$FORCE" != "1" ]; then
         echo "✗ 命令冲突: $DEST 是无关符号链接（未覆盖）" >&2
@@ -124,27 +133,86 @@ validate_entry_targets() {
 }
 
 prepare_entry_targets() {
-  validate_entry_targets
-  for ENTRY in cdx cld opc; do
+	validate_entry_targets
+	authorize_providerdeck_target
+	for ENTRY in cdx cld opc; do
     DEST="$BINDIR/$ENTRY"
     if [ -L "$DEST" ] || [ -f "$DEST" ]; then
       rm -f "$DEST"
     fi
-  done
+		done
 }
 
+prepare_providerdeck_compat() {
+	if [ -L "$PROVIDERDECK_BIN" ]; then
+		local target
+		target=$(readlink "$PROVIDERDECK_BIN")
+		case "${target##*/}" in
+			muxlm|providerdeck|ez-switch) rm -f "$PROVIDERDECK_BIN" ;;
+			*)
+				echo "  ⚠ 保留无关的 $PROVIDERDECK_BIN；未创建 ProviderDeck 兼容链接" >&2
+				return
+				;;
+		esac
+	elif [ -d "$PROVIDERDECK_BIN" ] || { [ -e "$PROVIDERDECK_BIN" ] && [ ! -f "$PROVIDERDECK_BIN" ]; }; then
+		echo "  ⚠ 保留特殊路径 $PROVIDERDECK_BIN；未创建 ProviderDeck 兼容链接" >&2
+		return
+	elif [ -f "$PROVIDERDECK_BIN" ]; then
+		if managed_binary "$PROVIDERDECK_BIN" "$PROVIDERDECK_MARKER"; then
+			rm -f "$PROVIDERDECK_BIN" "$PROVIDERDECK_MARKER"
+		else
+			echo "  ⚠ 保留未受管的 $PROVIDERDECK_BIN；未创建 ProviderDeck 兼容链接" >&2
+			return
+		fi
+	fi
+	rm -f "$PROVIDERDECK_MARKER"
+	( cd "$BINDIR" && ln -s muxlm providerdeck )
+}
+
+prepare_ez_switch_compat() {
+	local dest="$BINDIR/ez-switch"
+	if [ -L "$dest" ]; then
+		local target
+		target=$(readlink "$dest")
+		case "${target##*/}" in
+			muxlm|providerdeck|ez-switch) rm -f "$dest" ;;
+			*)
+				if [ "$FORCE" = "1" ]; then rm -f "$dest"; else
+					echo "  ⚠ 保留无关的 $dest；未创建 ez-switch 兼容链接" >&2
+					return
+				fi
+				;;
+		esac
+	elif [ -d "$dest" ] || { [ -e "$dest" ] && [ ! -f "$dest" ]; }; then
+		echo "  ⚠ 保留特殊路径 $dest；未创建 ez-switch 兼容链接" >&2
+		return
+	elif [ -f "$dest" ]; then
+		if [ "$FORCE" = "1" ]; then rm -f "$dest"; else
+			echo "  ⚠ 保留现有 $dest；未创建 ez-switch 兼容链接" >&2
+			return
+		fi
+	fi
+	( cd "$BINDIR" && ln -s muxlm ez-switch )
+}
+
+authorize_binary_target
+authorize_providerdeck_target
 validate_entry_targets
 
-echo "→ 安装 ProviderDeck $TAG ($GOOS/$GOARCH)"
-TMP_BIN=$(mktemp "$BINDIR/.providerdeck.XXXXXX")
-TMP_SUMS=$(mktemp "$BINDIR/.providerdeck-sums.XXXXXX")
-TMP_MARKER=$(mktemp "$BINDIR/.providerdeck-marker.XXXXXX")
+echo "→ 安装 MuxLM $TAG ($GOOS/$GOARCH)"
+TMP_BIN=$(mktemp "$BINDIR/.muxlm.XXXXXX")
+TMP_SUMS=$(mktemp "$BINDIR/.muxlm-sums.XXXXXX")
+TMP_MARKER=$(mktemp "$BINDIR/.muxlm-marker.XXXXXX")
 cleanup() { rm -f "$TMP_BIN" "$TMP_SUMS" "$TMP_MARKER"; }
 trap cleanup EXIT
 
-curl -fsSL "$URL" -o "$TMP_BIN"
+if ! curl -fsSL "$URL" -o "$TMP_BIN"; then
+	ASSET="$LEGACY_ASSET"
+	URL="$GITHUB/$REPO/releases/download/$TAG/$ASSET"
+	echo "  ↳ canonical asset 暂不可用，回退到兼容资产 $ASSET" >&2
+	curl -fsSL "$URL" -o "$TMP_BIN"
+fi
 curl -fsSL "$SUMS_URL" -o "$TMP_SUMS"
-ASSET="providerdeck-$GOOS-$GOARCH"
 EXPECTED=$(awk -v asset="$ASSET" '$2 == asset { print $1; exit }' "$TMP_SUMS")
 [ -n "$EXPECTED" ] || { echo "✗ SHA256SUMS 中没有 $ASSET" >&2; exit 1; }
 ACTUAL=$(sha256_file "$TMP_BIN")
@@ -163,12 +231,14 @@ if [ -L "$BIN" ]; then
   rm -f "$BIN"
 fi
 mv -f "$TMP_BIN" "$BIN"
-( cd "$BINDIR" && ln -s providerdeck cdx && ln -s providerdeck cld && ln -s providerdeck opc )
+( cd "$BINDIR" && ln -s muxlm cdx && ln -s muxlm cld && ln -s muxlm opc )
+prepare_providerdeck_compat
+prepare_ez_switch_compat
 
 # Publish the marker without following an existing link or treating a directory
 # as a rename destination. A hard link from the private temp file also fails if
 # another path appears between the checks.
-validate_marker_target
+validate_marker_target "$MARKER"
 if [ -e "$MARKER" ]; then
   rm -f "$MARKER"
 fi
@@ -178,7 +248,7 @@ rm -f "$TMP_SUMS"
 trap - EXIT
 
 echo "✓ SHA-256 校验通过"
-echo "✓ 已安装到 ${BINDIR}（cdx / cld / opc）"
+echo "✓ 已安装到 ${BINDIR}（muxlm / cdx / cld / opc）"
 case ":$PATH:" in
   *":$BINDIR:"*) ;;
   *)

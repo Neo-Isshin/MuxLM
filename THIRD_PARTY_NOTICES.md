@@ -1,6 +1,6 @@
 # Third-party notices
 
-ProviderDeck's seed provider catalog was inspired by and initially cross-checked against the community catalog in [CC Switch](https://github.com/farion1231/cc-switch). Provider endpoints and model identifiers should still be verified with each provider's official documentation before use.
+MuxLM's seed provider catalog was inspired by and initially cross-checked against the community catalog in [CC Switch](https://github.com/farion1231/cc-switch). Provider endpoints and model identifiers should still be verified with each provider's official documentation before use.
 
 ## CC Switch
 

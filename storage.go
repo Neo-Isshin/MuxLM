@@ -27,14 +27,14 @@ func unavailableConfigRoot() string {
 	// touching this sentinel. Nesting beneath the null device also makes direct
 	// Lstat/remove callers fail closed instead of addressing a real directory.
 	if nullDevice, absErr := filepath.Abs(os.DevNull); absErr == nil {
-		return filepath.Join(nullDevice, ".providerdeck-home-unavailable")
+		return filepath.Join(nullDevice, ".muxlm-home-unavailable")
 	}
-	return filepath.Join(string(os.PathSeparator), ".providerdeck-home-unavailable")
+	return filepath.Join(string(os.PathSeparator), ".muxlm-home-unavailable")
 }
 
 // configRootsForRead keeps the rename non-destructive. New paths win, while a
-// missing file/provider may still be read from the legacy cx tree. Explicit
-// config overrides are intentionally isolated and never fall back elsewhere.
+// missing file/provider may still be read from the ProviderDeck and cx trees.
+// Explicit config overrides are intentionally isolated and never fall back.
 func configRootsForRead() []string {
 	roots, err := configRootsForReadE()
 	if err != nil {
@@ -44,7 +44,7 @@ func configRootsForRead() []string {
 }
 
 func configRootsForReadE() ([]string, error) {
-	if d := firstEnv("PROVIDERDECK_CONFIG_DIR", "CX_CONFIG_DIR"); d != "" {
+	if d := firstEnv("MUXLM_CONFIG_DIR", "PROVIDERDECK_CONFIG_DIR", "CX_CONFIG_DIR"); d != "" {
 		abs, err := filepath.Abs(d)
 		if err != nil {
 			return nil, fmt.Errorf("配置目录无效: %w", err)
@@ -56,25 +56,34 @@ func configRootsForReadE() ([]string, error) {
 		if err == nil {
 			err = errors.New("HOME 为空")
 		}
-		return nil, fmt.Errorf("无法确定配置目录: %w；请设置 HOME 或 PROVIDERDECK_CONFIG_DIR", err)
+		return nil, fmt.Errorf("无法确定配置目录: %w；请设置 HOME 或 MUXLM_CONFIG_DIR", err)
 	}
 	if !filepath.IsAbs(home) {
-		return nil, fmt.Errorf("HOME 必须是绝对路径；请设置 HOME 或 PROVIDERDECK_CONFIG_DIR")
+		return nil, fmt.Errorf("HOME 必须是绝对路径；请设置 HOME 或 MUXLM_CONFIG_DIR")
 	}
 	home = filepath.Clean(home)
-	current := filepath.Join(home, ".config", "providerdeck")
-	legacy := filepath.Join(home, ".config", "cx")
-	if _, err := os.Lstat(current); err == nil || !os.IsNotExist(err) {
-		roots := []string{current}
-		if _, legacyErr := os.Lstat(legacy); legacyErr == nil || !os.IsNotExist(legacyErr) {
-			roots = append(roots, legacy)
+	candidates := []string{
+		filepath.Join(home, ".config", "muxlm"),
+		filepath.Join(home, ".config", "providerdeck"),
+		filepath.Join(home, ".config", "cx"),
+	}
+	primary := -1
+	for i, candidate := range candidates {
+		if _, err := os.Lstat(candidate); err == nil || !os.IsNotExist(err) {
+			primary = i
+			break
 		}
-		return roots, nil
 	}
-	if _, err := os.Lstat(legacy); err == nil || !os.IsNotExist(err) {
-		return []string{legacy}, nil
+	if primary == -1 {
+		return []string{candidates[0]}, nil
 	}
-	return []string{current}, nil
+	roots := []string{candidates[primary]}
+	for _, candidate := range candidates[primary+1:] {
+		if _, err := os.Lstat(candidate); err == nil || !os.IsNotExist(err) {
+			roots = append(roots, candidate)
+		}
+	}
+	return roots, nil
 }
 
 func providersDir() string         { return filepath.Join(configDir(), "providers") }
@@ -149,11 +158,22 @@ func readPrivateFile(path string) ([]byte, error) {
 	if !os.IsNotExist(err) {
 		return b, err
 	}
-	fallback, fallbackRoot, ok := legacyFallbackPathWithRoots(path, root, roots)
-	if !ok {
+	primaryAbs, _ := filepath.Abs(roots[0])
+	rootAbs, _ := filepath.Abs(root)
+	pathAbs, _ := filepath.Abs(path)
+	rel, relErr := filepath.Rel(primaryAbs, pathAbs)
+	if rootAbs != primaryAbs || relErr != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
 		return nil, err
 	}
-	return readPrivateFileWithin(fallback, fallbackRoot)
+	lastErr := err
+	for _, fallbackRoot := range roots[1:] {
+		b, fallbackErr := readPrivateFileWithin(filepath.Join(fallbackRoot, rel), fallbackRoot)
+		if !os.IsNotExist(fallbackErr) {
+			return b, fallbackErr
+		}
+		lastErr = fallbackErr
+	}
+	return nil, lastErr
 }
 
 func readPrivateFileWithin(path, root string) ([]byte, error) {
@@ -191,23 +211,6 @@ func privateRootForPathWithRoots(path string, roots []string) string {
 	return roots[0]
 }
 
-func legacyFallbackPathWithRoots(path, root string, roots []string) (string, string, bool) {
-	if len(roots) < 2 {
-		return "", "", false
-	}
-	primaryAbs, _ := filepath.Abs(roots[0])
-	rootAbs, _ := filepath.Abs(root)
-	if rootAbs != primaryAbs {
-		return "", "", false
-	}
-	pathAbs, _ := filepath.Abs(path)
-	rel, err := filepath.Rel(primaryAbs, pathAbs)
-	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
-		return "", "", false
-	}
-	return filepath.Join(roots[1], rel), roots[1], true
-}
-
 func atomicWriteJSON(path string, v any) error {
 	if err := ensurePrivateDir(filepath.Dir(path)); err != nil {
 		return err
@@ -230,7 +233,7 @@ func atomicWriteJSON(path string, v any) error {
 	if len(b) > maxPrivateFileBytes {
 		return fmt.Errorf("写入内容超过 2 MiB 限制: %s", path)
 	}
-	f, err := os.CreateTemp(filepath.Dir(path), ".providerdeck-write-*")
+	f, err := os.CreateTemp(filepath.Dir(path), ".muxlm-write-*")
 	if err != nil {
 		return err
 	}
@@ -261,7 +264,7 @@ func fileSecretsPath(providerID string) string {
 }
 
 func secretBackend() string {
-	if b := strings.ToLower(firstEnv("PROVIDERDECK_SECRET_BACKEND", "CX_SECRET_BACKEND")); b != "" {
+	if b := strings.ToLower(firstEnv("MUXLM_SECRET_BACKEND", "PROVIDERDECK_SECRET_BACKEND", "CX_SECRET_BACKEND")); b != "" {
 		return b
 	}
 	if runtime.GOOS == "darwin" {
@@ -320,7 +323,7 @@ func keychainPasswordInput(value string) string { return value + "\n" + value + 
 func secretGet(providerID, backend, ref string) (string, error) {
 	switch backend {
 	case "keychain":
-		for _, service := range []string{secretService, legacySecretService} {
+		for _, service := range secretServicesForRead() {
 			// #nosec G204 -- 可执行文件固定，ref 来自已校验的本地元数据。
 			out, err := exec.Command("security", "find-generic-password", "-a", ref, "-s", service, "-w").Output()
 			if err == nil {
@@ -329,7 +332,7 @@ func secretGet(providerID, backend, ref string) (string, error) {
 		}
 		return "", errors.New("密钥不存在")
 	case "secret-service":
-		for _, service := range []string{secretService, legacySecretService} {
+		for _, service := range secretServicesForRead() {
 			// #nosec G204 -- 可执行文件固定，ref 来自已校验的本地元数据。
 			out, err := exec.Command("secret-tool", "lookup", "service", service, "account", ref).Output()
 			if err == nil && strings.TrimSpace(string(out)) != "" {
@@ -388,7 +391,7 @@ func secretDelete(providerID, backend, ref string) error {
 func deleteSecretFromServices(remove func(service string) error) error {
 	var lastErr error
 	deleted := false
-	for _, service := range []string{secretService, legacySecretService} {
+	for _, service := range secretServicesForRead() {
 		if err := remove(service); err == nil {
 			deleted = true
 		} else {

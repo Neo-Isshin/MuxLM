@@ -1,4 +1,4 @@
-module github.com/Neo-Isshin/ProviderDeck/v2
+module github.com/Neo-Isshin/MuxLM/v2
 
 go 1.22
 

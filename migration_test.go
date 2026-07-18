@@ -10,88 +10,140 @@ import (
 	"time"
 )
 
-func TestProviderDeckEnvironmentTakesPrecedence(t *testing.T) {
+func TestMuxLMEnvironmentTakesPrecedence(t *testing.T) {
+	t.Setenv("MUXLM_CATALOG_URL", "https://canonical.example/catalog.json")
 	t.Setenv("PROVIDERDECK_CATALOG_URL", "https://primary.example/catalog.json")
 	t.Setenv("CX_CATALOG_URL", "https://legacy.example/catalog.json")
-	if got := catalogURL(); got != "https://primary.example/catalog.json" {
+	if got := catalogURL(); got != "https://canonical.example/catalog.json" {
 		t.Fatalf("catalog URL = %q", got)
 	}
 
+	t.Setenv("MUXLM_RELEASE_API_URL", "https://canonical.example/releases/latest")
 	t.Setenv("PROVIDERDECK_RELEASE_API_URL", "https://primary.example/releases/latest")
 	t.Setenv("CX_RELEASE_API_URL", "https://legacy.example/releases/latest")
-	if got := releaseAPIURL(); got != "https://primary.example/releases/latest" {
+	if got := releaseAPIURL(); got != "https://canonical.example/releases/latest" {
 		t.Fatalf("release API URL = %q", got)
 	}
 
+	t.Setenv("MUXLM_INSTALL_URL", "https://canonical.example/install.sh")
 	t.Setenv("PROVIDERDECK_INSTALL_URL", "https://primary.example/install.sh")
 	t.Setenv("CX_INSTALL_URL", "https://legacy.example/install.sh")
-	if got := installURL(); got != "https://primary.example/install.sh" {
+	if got := installURL(); got != "https://canonical.example/install.sh" {
 		t.Fatalf("install URL = %q", got)
 	}
 
+	t.Setenv("MUXLM_UPDATE_INTERVAL", "5m")
 	t.Setenv("PROVIDERDECK_UPDATE_INTERVAL", "15m")
 	t.Setenv("CX_UPDATE_INTERVAL", "1h")
-	if got := startupUpdateInterval(); got != 15*time.Minute {
+	if got := startupUpdateInterval(); got != 5*time.Minute {
 		t.Fatalf("update interval = %v", got)
 	}
 
+	t.Setenv("MUXLM_RELEASE_INTERVAL", "10m")
 	t.Setenv("PROVIDERDECK_RELEASE_INTERVAL", "30m")
 	t.Setenv("CX_RELEASE_INTERVAL", "2h")
-	if got := releaseUpdateInterval(); got != 30*time.Minute {
+	if got := releaseUpdateInterval(); got != 10*time.Minute {
 		t.Fatalf("release interval = %v", got)
 	}
 
+	canonicalConfig := filepath.Join(t.TempDir(), "muxlm")
 	primaryConfig := filepath.Join(t.TempDir(), "providerdeck")
+	t.Setenv("MUXLM_CONFIG_DIR", canonicalConfig)
 	t.Setenv("PROVIDERDECK_CONFIG_DIR", primaryConfig)
 	t.Setenv("CX_CONFIG_DIR", filepath.Join(t.TempDir(), "cx"))
-	if got := configDir(); got != primaryConfig {
+	if got := configDir(); got != canonicalConfig {
 		t.Fatalf("config dir = %q", got)
+	}
+
+	t.Setenv("MUXLM_SECRET_BACKEND", "file")
+	t.Setenv("PROVIDERDECK_SECRET_BACKEND", "keychain")
+	t.Setenv("CX_SECRET_BACKEND", "secret-service")
+	if got := secretBackend(); got != "file" {
+		t.Fatalf("secret backend = %q", got)
 	}
 }
 
-func TestLegacyEnvironmentFallback(t *testing.T) {
+func TestProviderDeckAndCXEnvironmentFallback(t *testing.T) {
+	t.Setenv("MUXLM_CATALOG_URL", "")
+	t.Setenv("PROVIDERDECK_CATALOG_URL", "https://providerdeck.example/catalog.json")
+	t.Setenv("CX_CATALOG_URL", "https://cx.example/catalog.json")
+	if got := catalogURL(); got != "https://providerdeck.example/catalog.json" {
+		t.Fatalf("ProviderDeck catalog URL = %q", got)
+	}
+
 	t.Setenv("PROVIDERDECK_CATALOG_URL", "")
-	t.Setenv("CX_CATALOG_URL", "https://legacy.example/catalog.json")
-	if got := catalogURL(); got != "https://legacy.example/catalog.json" {
-		t.Fatalf("legacy catalog URL = %q", got)
+	if got := catalogURL(); got != "https://cx.example/catalog.json" {
+		t.Fatalf("cx catalog URL = %q", got)
+	}
+	t.Setenv("MUXLM_SECRET_BACKEND", "")
+	t.Setenv("PROVIDERDECK_SECRET_BACKEND", "keychain")
+	t.Setenv("CX_SECRET_BACKEND", "file")
+	if got := secretBackend(); got != "keychain" {
+		t.Fatalf("ProviderDeck secret backend = %q", got)
 	}
 	t.Setenv("PROVIDERDECK_SECRET_BACKEND", "")
-	t.Setenv("CX_SECRET_BACKEND", "file")
 	if got := secretBackend(); got != "file" {
-		t.Fatalf("legacy secret backend = %q", got)
+		t.Fatalf("cx secret backend = %q", got)
+	}
+
+	providerDeckConfig := filepath.Join(t.TempDir(), "providerdeck")
+	cxConfig := filepath.Join(t.TempDir(), "cx")
+	t.Setenv("MUXLM_CONFIG_DIR", "")
+	t.Setenv("PROVIDERDECK_CONFIG_DIR", providerDeckConfig)
+	t.Setenv("CX_CONFIG_DIR", cxConfig)
+	if got := configDir(); got != providerDeckConfig {
+		t.Fatalf("ProviderDeck config dir = %q", got)
+	}
+	t.Setenv("PROVIDERDECK_CONFIG_DIR", "")
+	if got := configDir(); got != cxConfig {
+		t.Fatalf("cx config dir = %q", got)
 	}
 }
 
 func TestConfigDirReusesLegacyUntilNewDirectoryExists(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("MUXLM_CONFIG_DIR", "")
 	t.Setenv("PROVIDERDECK_CONFIG_DIR", "")
 	t.Setenv("CX_CONFIG_DIR", "")
-	legacy := filepath.Join(home, ".config", "cx")
-	current := filepath.Join(home, ".config", "providerdeck")
-	if err := os.MkdirAll(legacy, 0o700); err != nil {
+	cxRoot := filepath.Join(home, ".config", "cx")
+	providerDeckRoot := filepath.Join(home, ".config", "providerdeck")
+	muxLMRoot := filepath.Join(home, ".config", "muxlm")
+	if err := os.MkdirAll(cxRoot, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(legacy, "keys.env"), []byte("MINIMAX_KEY=legacy-value\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(cxRoot, "keys.env"), []byte("MINIMAX_KEY=cx-value\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if got := configDir(); got != legacy {
-		t.Fatalf("legacy config was not reused: %q", got)
+	if got := configDir(); got != cxRoot {
+		t.Fatalf("cx config was not reused: %q", got)
 	}
-	if err := os.MkdirAll(current, 0o700); err != nil {
+	if err := os.MkdirAll(providerDeckRoot, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if got := configDir(); got != current {
-		t.Fatalf("new config did not take precedence: %q", got)
+	if got := configDir(); got != providerDeckRoot {
+		t.Fatalf("ProviderDeck config did not take precedence over cx: %q", got)
 	}
-	if got := loadLegacyKeys()["MINIMAX_KEY"]; got != "legacy-value" {
-		t.Fatalf("missing new file did not fall back to legacy config: %q", got)
+	if got := loadLegacyKeys()["MINIMAX_KEY"]; got != "cx-value" {
+		t.Fatalf("missing ProviderDeck file did not fall back to cx: %q", got)
 	}
-	if err := os.WriteFile(filepath.Join(current, "keys.env"), []byte("MINIMAX_KEY=current-value\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(providerDeckRoot, "keys.env"), []byte("MINIMAX_KEY=providerdeck-value\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if got := loadLegacyKeys()["MINIMAX_KEY"]; got != "current-value" {
-		t.Fatalf("new config file did not override legacy config: %q", got)
+	if err := os.MkdirAll(muxLMRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if got := configDir(); got != muxLMRoot {
+		t.Fatalf("MuxLM config did not take precedence: %q", got)
+	}
+	if got := loadLegacyKeys()["MINIMAX_KEY"]; got != "providerdeck-value" {
+		t.Fatalf("missing MuxLM file did not fall back to ProviderDeck: %q", got)
+	}
+	if err := os.WriteFile(filepath.Join(muxLMRoot, "keys.env"), []byte("MINIMAX_KEY=muxlm-value\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := loadLegacyKeys()["MINIMAX_KEY"]; got != "muxlm-value" {
+		t.Fatalf("MuxLM file did not override legacy config: %q", got)
 	}
 }
 
@@ -109,9 +161,10 @@ func TestMissingHomeNeverFallsBackToRelativeConfig(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.Chdir(oldWork) })
 	t.Setenv("HOME", "")
+	t.Setenv("MUXLM_CONFIG_DIR", "")
 	t.Setenv("PROVIDERDECK_CONFIG_DIR", "")
 	t.Setenv("CX_CONFIG_DIR", "")
-	t.Setenv("PROVIDERDECK_SECRET_BACKEND", "file")
+	t.Setenv("MUXLM_SECRET_BACKEND", "file")
 
 	if _, err := configRootsForReadE(); err == nil {
 		t.Fatal("missing HOME unexpectedly produced a default config root")
@@ -143,11 +196,12 @@ func TestMissingHomeNeverFallsBackToRelativeConfig(t *testing.T) {
 func TestDualRootProviderKeysAndFileSecretsMigrateOnWrite(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("MUXLM_CONFIG_DIR", "")
 	t.Setenv("PROVIDERDECK_CONFIG_DIR", "")
 	t.Setenv("CX_CONFIG_DIR", "")
-	t.Setenv("PROVIDERDECK_SECRET_BACKEND", "file")
-	legacy := filepath.Join(home, ".config", "cx")
-	current := filepath.Join(home, ".config", "providerdeck")
+	t.Setenv("MUXLM_SECRET_BACKEND", "file")
+	legacy := filepath.Join(home, ".config", "providerdeck")
+	current := filepath.Join(home, ".config", "muxlm")
 	if err := os.MkdirAll(legacy, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -242,11 +296,12 @@ func TestDualRootProviderKeysAndFileSecretsMigrateOnWrite(t *testing.T) {
 func TestSecretSetDoesNotShadowOversizedLegacyStore(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("MUXLM_CONFIG_DIR", "")
 	t.Setenv("PROVIDERDECK_CONFIG_DIR", "")
 	t.Setenv("CX_CONFIG_DIR", "")
-	t.Setenv("PROVIDERDECK_SECRET_BACKEND", "file")
-	legacy := filepath.Join(home, ".config", "cx")
-	current := filepath.Join(home, ".config", "providerdeck")
+	t.Setenv("MUXLM_SECRET_BACKEND", "file")
+	legacy := filepath.Join(home, ".config", "providerdeck")
+	current := filepath.Join(home, ".config", "muxlm")
 	legacyPath := filepath.Join(legacy, "providers", "minimax", "secrets.json")
 	if err := os.MkdirAll(filepath.Dir(legacyPath), 0o700); err != nil {
 		t.Fatal(err)
@@ -271,20 +326,20 @@ func TestSecretSetDoesNotShadowOversizedLegacyStore(t *testing.T) {
 	}
 }
 
-func TestDefaultSourcesUseGitHubProviderDeck(t *testing.T) {
-	if defaultCatalogURL != "https://raw.githubusercontent.com/Neo-Isshin/ProviderDeck/main/catalog.json" {
+func TestDefaultSourcesUseGitHubMuxLM(t *testing.T) {
+	if defaultCatalogURL != "https://raw.githubusercontent.com/Neo-Isshin/MuxLM/main/catalog.json" {
 		t.Fatalf("catalog source = %q", defaultCatalogURL)
 	}
-	if defaultReleaseAPIURL != "https://api.github.com/repos/Neo-Isshin/ProviderDeck/releases/latest" {
+	if defaultReleaseAPIURL != "https://api.github.com/repos/Neo-Isshin/MuxLM/releases/latest" {
 		t.Fatalf("release source = %q", defaultReleaseAPIURL)
 	}
-	if defaultInstallURL != "https://raw.githubusercontent.com/Neo-Isshin/ProviderDeck/main/install.sh" {
+	if defaultInstallURL != "https://raw.githubusercontent.com/Neo-Isshin/MuxLM/main/install.sh" {
 		t.Fatalf("installer source = %q", defaultInstallURL)
 	}
 }
 
-func TestCatalogAcceptsNewAndLegacyProviderKeyNamespaces(t *testing.T) {
-	for _, keyEnv := range []string{"PROVIDERDECK_PROVIDER_TESTDECK_KEY", "CX_PROVIDER_TESTDECK_KEY"} {
+func TestCatalogAcceptsCanonicalAndLegacyProviderKeyNamespaces(t *testing.T) {
+	for _, keyEnv := range []string{"MUXLM_PROVIDER_TESTDECK_KEY", "PROVIDERDECK_PROVIDER_TESTDECK_KEY", "CX_PROVIDER_TESTDECK_KEY"} {
 		catalog := cloneCatalog(t, &embeddedCatalog)
 		catalog.Providers = append(catalog.Providers, Provider{
 			ID:        "testdeck",
@@ -301,17 +356,23 @@ func TestCatalogAcceptsNewAndLegacyProviderKeyNamespaces(t *testing.T) {
 	}
 }
 
-func TestChildEnvScrubsProviderDeckKeyNamespaces(t *testing.T) {
+func TestChildEnvScrubsAllMuxLMKeyNamespaces(t *testing.T) {
 	isolatedConfig(t)
+	t.Setenv("MUXLM_PROVIDER_RETIRED_KEY", "muxlm-retired-secret")
+	t.Setenv("MUXLM_CUSTOM_KEY", "muxlm-custom-secret")
 	t.Setenv("PROVIDERDECK_PROVIDER_RETIRED_KEY", "retired-secret")
 	t.Setenv("PROVIDERDECK_CUSTOM_KEY", "custom-secret")
+	t.Setenv("CX_PROVIDER_RETIRED_KEY", "cx-retired-secret")
+	t.Setenv("CX_CUSTOM_KEY", "cx-custom-secret")
 	env := strings.Join(childEnv(nil), "\n")
-	if strings.Contains(env, "retired-secret") || strings.Contains(env, "custom-secret") {
-		t.Fatal("ProviderDeck key leaked to child process")
+	for _, secret := range []string{"muxlm-retired-secret", "muxlm-custom-secret", "retired-secret", "custom-secret", "cx-retired-secret", "cx-custom-secret"} {
+		if strings.Contains(env, secret) {
+			t.Fatalf("key leaked to child process: %s", secret)
+		}
 	}
 }
 
-func TestSecretBackendWritesNewServiceAndReadsLegacyService(t *testing.T) {
+func TestSecretBackendWritesMuxLMServiceAndReadsLegacyServices(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("shell fixture is only used on supported Unix platforms")
 	}
@@ -324,7 +385,7 @@ case "$1" in
     ;;
   find-generic-password)
     case " $* " in
-      *" -s ez-switch "*) printf '%s' 'legacy-secret' ;;
+      *" -s $LEGACY_SERVICE "*) printf '%s' "$LEGACY_SERVICE-secret" ;;
       *) exit 44 ;;
     esac
     ;;
@@ -338,21 +399,27 @@ esac
 	capture := filepath.Join(root, "args")
 	t.Setenv("PATH", root+string(os.PathListSeparator)+os.Getenv("PATH"))
 	t.Setenv("CAPTURE", capture)
-	t.Setenv("PROVIDERDECK_SECRET_BACKEND", "keychain")
+	t.Setenv("MUXLM_SECRET_BACKEND", "keychain")
 	if _, err := secretSet("test", "provider/test/key/main", "new-secret"); err != nil {
 		t.Fatal(err)
 	}
 	args, err := os.ReadFile(capture)
-	if err != nil || !strings.Contains(string(args), "-s providerdeck") || strings.Contains(string(args), "new-secret") {
+	if err != nil || !strings.Contains(string(args), "-s muxlm") || strings.Contains(string(args), "new-secret") {
 		t.Fatalf("new service args = %q, err=%v", args, err)
 	}
-	got, err := secretGet("test", "keychain", "provider/test/key/main")
-	if err != nil || got != "legacy-secret" {
-		t.Fatalf("legacy fallback = %q, err=%v", got, err)
+	if got := secretServicesForRead(); strings.Join(got, ",") != "muxlm,providerdeck,ez-switch" {
+		t.Fatalf("secret service precedence = %#v", got)
+	}
+	for _, service := range []string{"providerdeck", "ez-switch"} {
+		t.Setenv("LEGACY_SERVICE", service)
+		got, err := secretGet("test", "keychain", "provider/test/key/main")
+		if err != nil || got != service+"-secret" {
+			t.Fatalf("%s fallback = %q, err=%v", service, got, err)
+		}
 	}
 }
 
-func TestGeneratedConfigsUseProviderDeckIdentity(t *testing.T) {
+func TestGeneratedConfigsUseMuxLMIdentity(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("shell fixture is only used on supported Unix platforms")
 	}
@@ -373,12 +440,12 @@ func TestGeneratedConfigsUseProviderDeckIdentity(t *testing.T) {
 		t.Fatal(err)
 	}
 	config, err := os.ReadFile(capture)
-	if err != nil || !strings.Contains(string(config), `model_provider = "providerdeck"`) || !strings.Contains(string(config), `[model_providers.providerdeck]`) {
+	if err != nil || !strings.Contains(string(config), `model_provider = "muxlm"`) || !strings.Contains(string(config), `[model_providers.muxlm]`) {
 		t.Fatalf("Codex config = %q, err=%v", config, err)
 	}
 	previewOutput := captureStdout(t, func() { preview("opencode", &provider, "model", false, false, nil) })
-	if !strings.Contains(previewOutput, "providerdeck/model") {
-		t.Fatalf("OpenCode preview still uses old provider identity: %s", previewOutput)
+	if !strings.Contains(previewOutput, "muxlm/model") {
+		t.Fatalf("OpenCode preview does not use MuxLM identity: %s", previewOutput)
 	}
 }
 
@@ -391,18 +458,18 @@ func TestReleaseAssetNamingMatchesInstaller(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(installer), `ASSET="providerdeck-$GOOS-$GOARCH"`) {
+	if !strings.Contains(string(installer), `ASSET="muxlm-$GOOS-$GOARCH"`) || !strings.Contains(string(installer), `LEGACY_ASSET="providerdeck-$GOOS-$GOARCH"`) {
 		t.Fatal("installer asset name is not canonical")
 	}
-	if !strings.Contains(string(workflow), `dist/providerdeck-$os-$arch`) || !strings.Contains(string(workflow), `sha256sum providerdeck-* > SHA256SUMS`) {
-		t.Fatal("release workflow assets do not match the installer")
+	if !strings.Contains(string(workflow), `dist/muxlm-$os-$arch`) || !strings.Contains(string(workflow), `dist/providerdeck-$os-$arch`) || !strings.Contains(string(workflow), `sha256sum muxlm-* providerdeck-* > SHA256SUMS`) {
+		t.Fatal("release workflow does not publish canonical and compatibility assets")
 	}
 }
 
-func TestVersionOutputUsesProviderDeckBrand(t *testing.T) {
+func TestVersionOutputUsesMuxLMBrand(t *testing.T) {
 	isolatedConfig(t)
 	output := captureStdout(t, printVersion)
-	if !strings.HasPrefix(output, "ProviderDeck v2.0.0\n") {
+	if !strings.HasPrefix(output, "MuxLM v2.1.0\n") {
 		t.Fatalf("version output = %q", output)
 	}
 }

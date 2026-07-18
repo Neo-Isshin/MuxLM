@@ -15,9 +15,9 @@ import (
 	"time"
 )
 
-const signalHelperEnv = "PROVIDERDECK_TEST_SIGNAL_HELPER"
+const signalHelperEnv = "MUXLM_TEST_SIGNAL_HELPER"
 
-func TestProviderDeckSignalHelperProcess(t *testing.T) {
+func TestMuxLMSignalHelperProcess(t *testing.T) {
 	mode := os.Getenv(signalHelperEnv)
 	if mode == "" {
 		return
@@ -51,7 +51,7 @@ func TestProviderDeckSignalHelperProcess(t *testing.T) {
 
 func TestSignalExitCodeIsNormalized(t *testing.T) {
 	if runtime.GOOS == "windows" {
-		t.Skip("ProviderDeck release targets are Unix platforms")
+		t.Skip("MuxLM release targets are Unix platforms")
 	}
 	err := exec.Command("sh", "-c", "kill -TERM $$").Run()
 	normalized := normalizeCommandError(err)
@@ -67,7 +67,7 @@ func TestSignalExitCodeIsNormalized(t *testing.T) {
 
 func TestLaunchCleansSecretDirectoryAfterTermSignal(t *testing.T) {
 	if runtime.GOOS == "windows" {
-		t.Skip("ProviderDeck release targets are Unix platforms")
+		t.Skip("MuxLM release targets are Unix platforms")
 	}
 	capture, ready, first := installSignalHelper(t, "graceful")
 
@@ -93,7 +93,7 @@ func TestLaunchCleansSecretDirectoryAfterTermSignal(t *testing.T) {
 
 func TestLaunchForcesIgnoredChildOnSecondSignalAndCleansSecretDirectory(t *testing.T) {
 	if runtime.GOOS == "windows" {
-		t.Skip("ProviderDeck release targets are Unix platforms")
+		t.Skip("MuxLM release targets are Unix platforms")
 	}
 	for _, sig := range []syscall.Signal{syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP, syscall.SIGQUIT} {
 		t.Run(sig.String(), func(t *testing.T) {
@@ -134,7 +134,7 @@ func TestLaunchForcesIgnoredChildOnSecondSignalAndCleansSecretDirectory(t *testi
 }
 
 func signalHelperArgs() []string {
-	return []string{"-test.run=^TestProviderDeckSignalHelperProcess$"}
+	return []string{"-test.run=^TestMuxLMSignalHelperProcess$"}
 }
 
 func installSignalHelper(t *testing.T, mode string) (capture, ready, first string) {

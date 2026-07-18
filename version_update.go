@@ -15,12 +15,12 @@ import (
 
 // Release builds may override appVersion with:
 //
-//	go build -ldflags "-X main.appVersion=v2.0.0"
-var appVersion = "v2.0.0"
+//	go build -ldflags "-X main.appVersion=v2.1.0"
+var appVersion = "v2.1.0"
 
 const (
-	defaultReleaseAPIURL   = "https://api.github.com/repos/Neo-Isshin/ProviderDeck/releases/latest"
-	defaultInstallURL      = "https://raw.githubusercontent.com/Neo-Isshin/ProviderDeck/main/install.sh"
+	defaultReleaseAPIURL   = "https://api.github.com/repos/Neo-Isshin/MuxLM/releases/latest"
+	defaultInstallURL      = "https://raw.githubusercontent.com/Neo-Isshin/MuxLM/main/install.sh"
 	startupUpdateTimeout   = 2500 * time.Millisecond
 	defaultUpdateInterval  = time.Duration(0)
 	defaultReleaseInterval = time.Hour
@@ -48,31 +48,31 @@ type releaseCheckState struct {
 }
 
 func releaseAPIURL() string {
-	if u := firstEnv("PROVIDERDECK_RELEASE_API_URL", "CX_RELEASE_API_URL"); u != "" {
+	if u := firstEnv("MUXLM_RELEASE_API_URL", "PROVIDERDECK_RELEASE_API_URL", "CX_RELEASE_API_URL"); u != "" {
 		return u
 	}
 	return defaultReleaseAPIURL
 }
 
 func installURL() string {
-	if u := firstEnv("PROVIDERDECK_INSTALL_URL", "CX_INSTALL_URL"); u != "" {
+	if u := firstEnv("MUXLM_INSTALL_URL", "PROVIDERDECK_INSTALL_URL", "CX_INSTALL_URL"); u != "" {
 		return u
 	}
 	return defaultInstallURL
 }
 
 func updatesDisabled() bool {
-	v := strings.ToLower(strings.TrimSpace(firstEnv("PROVIDERDECK_AUTO_UPDATE", "CX_AUTO_UPDATE")))
+	v := strings.ToLower(strings.TrimSpace(firstEnv("MUXLM_AUTO_UPDATE", "PROVIDERDECK_AUTO_UPDATE", "CX_AUTO_UPDATE")))
 	return v == "0" || v == "false" || v == "off" || v == "no"
 }
 
 func updateDebugEnabled() bool {
-	v := strings.ToLower(strings.TrimSpace(firstEnv("PROVIDERDECK_UPDATE_DEBUG", "CX_UPDATE_DEBUG")))
+	v := strings.ToLower(strings.TrimSpace(firstEnv("MUXLM_UPDATE_DEBUG", "PROVIDERDECK_UPDATE_DEBUG", "CX_UPDATE_DEBUG")))
 	return v == "1" || v == "true" || v == "on" || v == "yes"
 }
 
 func startupUpdateInterval() time.Duration {
-	raw := strings.TrimSpace(firstEnv("PROVIDERDECK_UPDATE_INTERVAL", "CX_UPDATE_INTERVAL"))
+	raw := strings.TrimSpace(firstEnv("MUXLM_UPDATE_INTERVAL", "PROVIDERDECK_UPDATE_INTERVAL", "CX_UPDATE_INTERVAL"))
 	if raw == "" {
 		return defaultUpdateInterval
 	}
@@ -87,7 +87,7 @@ func startupUpdateInterval() time.Duration {
 }
 
 func releaseUpdateInterval() time.Duration {
-	raw := strings.TrimSpace(firstEnv("PROVIDERDECK_RELEASE_INTERVAL", "CX_RELEASE_INTERVAL"))
+	raw := strings.TrimSpace(firstEnv("MUXLM_RELEASE_INTERVAL", "PROVIDERDECK_RELEASE_INTERVAL", "CX_RELEASE_INTERVAL"))
 	if raw == "" {
 		return defaultReleaseInterval
 	}
