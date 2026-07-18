@@ -118,7 +118,7 @@ func profileToProvider(name string, c CustomProfile) Provider {
 		Alias:  name,
 		Name:   "自定义 · " + hostOf(c.Base),
 		Plan:   "custom",
-		KeyEnv: "PROVIDERDECK_" + strings.ToUpper(strings.ReplaceAll(safeID(name), "-", "_")) + "_KEY",
+		KeyEnv: "MUXLM_" + strings.ToUpper(strings.ReplaceAll(safeID(name), "-", "_")) + "_KEY",
 		Key:    c.Key,
 		CLI:    cliForProtocol(c.Protocol),
 		// 单模型，无需版本别名——用裸别名 <name> 即可，避免表格里 版本别名 与 别名 重复。

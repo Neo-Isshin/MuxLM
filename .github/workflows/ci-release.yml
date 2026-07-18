@@ -64,12 +64,13 @@ jobs:
             arch="${target#*/}"
             CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" \
               go build -trimpath -ldflags="-s -w -X main.appVersion=$version" \
-              -o "dist/providerdeck-$os-$arch" .
+              -o "dist/muxlm-$os-$arch" .
+            cp "dist/muxlm-$os-$arch" "dist/providerdeck-$os-$arch"
           done
           cp LICENSE THIRD_PARTY_NOTICES.md dist/
           (
             cd dist
-            sha256sum providerdeck-* > SHA256SUMS
+            sha256sum muxlm-* providerdeck-* > SHA256SUMS
           )
       - name: Publish GitHub release
         env:

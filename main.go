@@ -107,7 +107,7 @@ func main() {
 
 	// argv[0] 决定目标 CLI：cdx→codex, cld→claude, opc→opencode
 	if cli == "" {
-		fail("providerdeck 不能直接启动模型；请使用 cdx / cld / opc\n例如: cdx glm")
+		fail("muxlm 不能直接启动模型；请使用 cdx / cld / opc\n例如: cdx glm")
 	}
 
 	if len(args) > 0 {

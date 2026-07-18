@@ -21,9 +21,9 @@ func customProviderPath(id string) string { return filepath.Join(providerDir(id)
 func printConfig(cli string) error {
 	global := cli == "claude" || cli == "opencode"
 	if global {
-		fmt.Println("\nProviderDeck 全局配置中心（Anthropic + OpenAI routes）")
+		fmt.Println("\nMuxLM 全局配置中心（Anthropic + OpenAI routes）")
 	} else {
-		fmt.Println("\nProviderDeck OpenAI-compatible 过滤视图（与 cld config 共享配置）")
+		fmt.Println("\nMuxLM OpenAI-compatible 过滤视图（与 cld config 共享配置）")
 	}
 	fmt.Printf("%-12s %-11s %-11s %-14s %-18s %-12s %s\n", "PROVIDER", "ALIAS", "PLAN", "ANTHROPIC", "OPENAI / WIRE", "KEY REGIONS", "KEYS")
 	fmt.Println(strings.Repeat("-", 96))
@@ -302,7 +302,7 @@ func runAddCustom(cli string) error {
 		return fmt.Errorf("model 不能为空")
 	}
 	id := "custom-" + alias
-	p := Provider{ID: id, Alias: alias, Name: "自定义 · " + hostOf(base), Plan: "custom", KeyEnv: "PROVIDERDECK_" + strings.ToUpper(strings.ReplaceAll(alias, "-", "_")) + "_KEY", Models: []Model{{ID: model, Latest: true}}}
+	p := Provider{ID: id, Alias: alias, Name: "自定义 · " + hostOf(base), Plan: "custom", KeyEnv: "MUXLM_" + strings.ToUpper(strings.ReplaceAll(alias, "-", "_")) + "_KEY", Models: []Model{{ID: model, Latest: true}}}
 	if protocol == "anthropic" {
 		p.ClaudeURL = base
 		p.CLI = []string{"claude", "opencode"}
@@ -354,7 +354,7 @@ func runRemove(alias string) error {
 
 // providerRemovalPaths resolves and validates every deletion target before any
 // secret or metadata is removed. This prevents a symlinked config/providers
-// parent from redirecting RemoveAll outside ProviderDeck's configuration tree.
+// parent from redirecting RemoveAll outside MuxLM's configuration tree.
 func providerRemovalPaths(id string) ([]string, error) {
 	if id == "" || safeID(id) != id {
 		return nil, fmt.Errorf("非法 provider id")

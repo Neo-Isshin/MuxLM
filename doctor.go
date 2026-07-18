@@ -194,8 +194,8 @@ func inspectDoctorProviderMetadata() (warnings, problems []string) {
 	providerIDs := make([]string, 0)
 	seen := make(map[string]bool)
 
-	// Discover provider IDs from both roots. The order mirrors runtime reads:
-	// ProviderDeck first, then the legacy cx tree, with duplicate IDs merged.
+	// Discover provider IDs from all roots. The order mirrors runtime reads:
+	// MuxLM first, then ProviderDeck and cx, with duplicate IDs merged.
 	for _, configRoot := range roots {
 		root := filepath.Join(configRoot, "providers")
 		info, err := os.Lstat(root)
@@ -354,17 +354,16 @@ func isDoctorLegacyRoot(root string, index int) bool {
 	if index > 0 {
 		return true
 	}
-	if os.Getenv("PROVIDERDECK_CONFIG_DIR") == "" {
-		if legacyOverride := os.Getenv("CX_CONFIG_DIR"); legacyOverride != "" {
-			legacyAbs, _ := filepath.Abs(legacyOverride)
-			rootAbs, _ := filepath.Abs(root)
-			return legacyAbs == rootAbs
-		}
-		if home, err := os.UserHomeDir(); err == nil {
-			legacyAbs, _ := filepath.Abs(filepath.Join(home, ".config", "cx"))
-			rootAbs, _ := filepath.Abs(root)
-			return legacyAbs == rootAbs
-		}
+	if os.Getenv("MUXLM_CONFIG_DIR") != "" {
+		return false
+	}
+	if firstEnv("PROVIDERDECK_CONFIG_DIR", "CX_CONFIG_DIR") != "" {
+		return true
+	}
+	if home, err := os.UserHomeDir(); err == nil {
+		currentAbs, _ := filepath.Abs(filepath.Join(home, ".config", "muxlm"))
+		rootAbs, _ := filepath.Abs(root)
+		return currentAbs != rootAbs
 	}
 	return false
 }

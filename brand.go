@@ -3,15 +3,22 @@ package main
 import "os"
 
 const (
-	appName             = "ProviderDeck"
-	binaryName          = "providerdeck"
-	secretService       = "providerdeck"
-	legacySecretService = "ez-switch"
+	appName                         = "MuxLM"
+	binaryName                      = "muxlm"
+	secretService                   = "muxlm"
+	legacyProviderDeckSecretService = "providerdeck"
+	legacyEZSwitchSecretService     = "ez-switch"
 )
 
-func firstEnv(primary, legacy string) string {
-	if value := os.Getenv(primary); value != "" {
-		return value
+func firstEnv(names ...string) string {
+	for _, name := range names {
+		if value := os.Getenv(name); value != "" {
+			return value
+		}
 	}
-	return os.Getenv(legacy)
+	return ""
+}
+
+func secretServicesForRead() []string {
+	return []string{secretService, legacyProviderDeckSecretService, legacyEZSwitchSecretService}
 }

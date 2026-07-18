@@ -21,7 +21,7 @@ import (
 )
 
 const (
-	defaultCatalogURL   = "https://raw.githubusercontent.com/Neo-Isshin/ProviderDeck/main/catalog.json"
+	defaultCatalogURL   = "https://raw.githubusercontent.com/Neo-Isshin/MuxLM/main/catalog.json"
 	maxCatalogBytes     = 2 << 20
 	catalogStateVersion = 2
 )
@@ -47,7 +47,7 @@ type catalogUpdateResult struct {
 }
 
 func catalogURL() string {
-	if u := firstEnv("PROVIDERDECK_CATALOG_URL", "CX_CATALOG_URL"); u != "" {
+	if u := firstEnv("MUXLM_CATALOG_URL", "PROVIDERDECK_CATALOG_URL", "CX_CATALOG_URL"); u != "" {
 		return u
 	}
 	return defaultCatalogURL
@@ -233,7 +233,7 @@ func validCatalogKeyEnv(p *Provider) bool {
 		return p.KeyEnv == expected
 	}
 	suffix := strings.ToUpper(strings.NewReplacer("-", "_", ".", "_", " ", "_").Replace(p.ID))
-	for _, namespace := range []string{"PROVIDERDECK_PROVIDER_", "CX_PROVIDER_"} {
+	for _, namespace := range []string{"MUXLM_PROVIDER_", "PROVIDERDECK_PROVIDER_", "CX_PROVIDER_"} {
 		prefix := namespace + suffix
 		if p.KeyEnv == prefix+"_KEY" || strings.HasPrefix(p.KeyEnv, prefix+"_") && strings.HasSuffix(p.KeyEnv, "_KEY") {
 			return true

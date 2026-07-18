@@ -27,14 +27,20 @@ func setupDoctorTest(t *testing.T, commands ...string) (configDirPath, binDir st
 			t.Fatal(err)
 		}
 	}
-	t.Setenv("PROVIDERDECK_CONFIG_DIR", configDirPath)
-	t.Setenv("PROVIDERDECK_SECRET_BACKEND", "file")
-	t.Setenv("PROVIDERDECK_CATALOG_URL", defaultCatalogURL)
+	t.Setenv("MUXLM_CONFIG_DIR", configDirPath)
+	t.Setenv("PROVIDERDECK_CONFIG_DIR", "")
+	t.Setenv("CX_CONFIG_DIR", "")
+	t.Setenv("MUXLM_SECRET_BACKEND", "file")
+	t.Setenv("PROVIDERDECK_SECRET_BACKEND", "")
+	t.Setenv("CX_SECRET_BACKEND", "")
+	t.Setenv("MUXLM_CATALOG_URL", defaultCatalogURL)
+	t.Setenv("PROVIDERDECK_CATALOG_URL", "")
+	t.Setenv("CX_CATALOG_URL", "")
 	t.Setenv("PATH", binDir)
 	return configDirPath, binDir
 }
 
-func setupDoctorHomeTest(t *testing.T, commands ...string) (current, legacy string) {
+func setupDoctorHomeTest(t *testing.T, commands ...string) (current, providerDeck, cx string) {
 	t.Helper()
 	home := t.TempDir()
 	binDir := filepath.Join(home, "bin")
@@ -48,12 +54,19 @@ func setupDoctorHomeTest(t *testing.T, commands ...string) (current, legacy stri
 		}
 	}
 	t.Setenv("HOME", home)
+	t.Setenv("MUXLM_CONFIG_DIR", "")
 	t.Setenv("PROVIDERDECK_CONFIG_DIR", "")
 	t.Setenv("CX_CONFIG_DIR", "")
-	t.Setenv("PROVIDERDECK_SECRET_BACKEND", "file")
-	t.Setenv("PROVIDERDECK_CATALOG_URL", defaultCatalogURL)
+	t.Setenv("MUXLM_SECRET_BACKEND", "file")
+	t.Setenv("PROVIDERDECK_SECRET_BACKEND", "")
+	t.Setenv("CX_SECRET_BACKEND", "")
+	t.Setenv("MUXLM_CATALOG_URL", defaultCatalogURL)
+	t.Setenv("PROVIDERDECK_CATALOG_URL", "")
+	t.Setenv("CX_CATALOG_URL", "")
 	t.Setenv("PATH", binDir)
-	return filepath.Join(home, ".config", "providerdeck"), filepath.Join(home, ".config", "cx")
+	return filepath.Join(home, ".config", "muxlm"),
+		filepath.Join(home, ".config", "providerdeck"),
+		filepath.Join(home, ".config", "cx")
 }
 
 func writeDoctorTestJSON(t *testing.T, path string, value any, mode os.FileMode) {
@@ -78,7 +91,7 @@ func TestDoctorReportsLocalStateWithoutNetwork(t *testing.T) {
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
 	defer server.Close()
-	t.Setenv("PROVIDERDECK_CATALOG_URL", server.URL)
+	t.Setenv("MUXLM_CATALOG_URL", server.URL)
 
 	var out bytes.Buffer
 	if err := runDoctor(&out); err != nil {
@@ -167,7 +180,7 @@ func TestDoctorRejectsCorruptConfigMetadataWithoutReadingSecrets(t *testing.T) {
 }
 
 func TestDoctorLstatChecksEffectiveSecretStoreWithoutReadingIt(t *testing.T) {
-	current, legacy := setupDoctorHomeTest(t, "codex", "claude", "opencode")
+	current, legacy, _ := setupDoctorHomeTest(t, "codex", "claude", "opencode")
 	id := "custom-secretcheck"
 	currentDir := filepath.Join(current, "providers", id)
 	legacyDir := filepath.Join(legacy, "providers", id)
@@ -258,42 +271,50 @@ func TestDoctorReportsPermissionsWithoutChangingThem(t *testing.T) {
 }
 
 func TestDoctorUsesAndReportsLegacyCatalogFallbackReadOnly(t *testing.T) {
-	current, legacy := setupDoctorHomeTest(t, "codex", "claude", "opencode")
-	if err := os.MkdirAll(current, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(legacy, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	cached := cloneCatalog(t, &embeddedCatalog)
-	cached.Revision = "2099-01-01.1"
-	cachePath := filepath.Join(legacy, "catalog.json")
-	writeDoctorTestJSON(t, cachePath, cached, 0o644)
-	if err := os.Chmod(cachePath, 0o644); err != nil {
-		t.Fatal(err)
-	}
+	for _, legacyName := range []string{"providerdeck", "cx"} {
+		t.Run(legacyName, func(t *testing.T) {
+			current, providerDeck, cx := setupDoctorHomeTest(t, "codex", "claude", "opencode")
+			legacy := providerDeck
+			if legacyName == "cx" {
+				legacy = cx
+			}
+			if err := os.MkdirAll(current, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.MkdirAll(legacy, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			cached := cloneCatalog(t, &embeddedCatalog)
+			cached.Revision = "2099-01-01.1"
+			cachePath := filepath.Join(legacy, "catalog.json")
+			writeDoctorTestJSON(t, cachePath, cached, 0o644)
+			if err := os.Chmod(cachePath, 0o644); err != nil {
+				t.Fatal(err)
+			}
 
-	var out bytes.Buffer
-	if err := runDoctor(&out); err != nil {
-		t.Fatalf("legacy cache should be valid: %v\n%s", err, out.String())
-	}
-	text := out.String()
-	if !strings.Contains(text, "catalog   2099-01-01.1 (legacy cache)") ||
-		!strings.Contains(text, fmt.Sprintf("cache     %q", cachePath)) {
-		t.Fatalf("actual legacy cache source was not reported:\n%s", text)
-	}
-	if info, err := os.Stat(cachePath); err != nil {
-		t.Fatalf("legacy cache disappeared: %v", err)
-	} else if info.Mode().Perm() != 0o644 {
-		t.Fatalf("doctor changed legacy cache permissions: mode=%04o", info.Mode().Perm())
-	}
-	if _, err := os.Lstat(filepath.Join(current, "catalog.json")); !os.IsNotExist(err) {
-		t.Fatalf("doctor created a primary cache: %v", err)
+			var out bytes.Buffer
+			if err := runDoctor(&out); err != nil {
+				t.Fatalf("legacy cache should be valid: %v\n%s", err, out.String())
+			}
+			text := out.String()
+			if !strings.Contains(text, "catalog   2099-01-01.1 (legacy cache)") ||
+				!strings.Contains(text, fmt.Sprintf("cache     %q", cachePath)) {
+				t.Fatalf("actual legacy cache source was not reported:\n%s", text)
+			}
+			if info, err := os.Stat(cachePath); err != nil {
+				t.Fatalf("legacy cache disappeared: %v", err)
+			} else if info.Mode().Perm() != 0o644 {
+				t.Fatalf("doctor changed legacy cache permissions: mode=%04o", info.Mode().Perm())
+			}
+			if _, err := os.Lstat(filepath.Join(current, "catalog.json")); !os.IsNotExist(err) {
+				t.Fatalf("doctor created a primary cache: %v", err)
+			}
+		})
 	}
 }
 
 func TestDoctorMergesProviderMetadataWithPerFileFallback(t *testing.T) {
-	current, legacy := setupDoctorHomeTest(t, "codex", "claude", "opencode")
+	current, legacy, _ := setupDoctorHomeTest(t, "codex", "claude", "opencode")
 	currentProviders := filepath.Join(current, "providers")
 	legacyProviders := filepath.Join(legacy, "providers")
 	for _, dir := range []string{
