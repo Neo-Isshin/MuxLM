@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-// CustomProfile 是用户自定义保存的端点（存于 ~/.config/cx/custom.json，权限 600）。
+// CustomProfile 是用户自定义保存的端点（旧版 custom.json，权限 600）。
 type CustomProfile struct {
 	Protocol string // "anthropic" | "openai"
 	Base     string // 端点 base URL
@@ -26,21 +26,25 @@ func customFile() string {
 func loadCustomProfiles() []Provider {
 	var out []Provider
 	seen := map[string]bool{}
-	entries, _ := os.ReadDir(providersDir())
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-		data, err := readPrivateFile(filepath.Join(providersDir(), entry.Name(), "provider.json"))
-		if err != nil {
-			continue
-		}
-		var f customProviderFile
-		if json.Unmarshal(data, &f) == nil && f.Version == 1 && validateStoredCustomProvider(&f.Provider, entry.Name()) == nil {
-			out = append(out, f.Provider)
-			seen[f.Provider.Alias] = true
-		} else {
-			fmt.Fprintf(os.Stderr, "⚠ 忽略无效自定义 provider: %s\n", entry.Name())
+	seenDirs := map[string]bool{}
+	for _, root := range providerDirsForRead() {
+		entries, _ := os.ReadDir(root)
+		for _, entry := range entries {
+			if !entry.IsDir() || seenDirs[entry.Name()] {
+				continue
+			}
+			seenDirs[entry.Name()] = true
+			data, err := readPrivateFile(filepath.Join(root, entry.Name(), "provider.json"))
+			if err != nil {
+				continue
+			}
+			var f customProviderFile
+			if json.Unmarshal(data, &f) == nil && f.Version == 1 && validateStoredCustomProvider(&f.Provider, entry.Name()) == nil {
+				out = append(out, f.Provider)
+				seen[f.Provider.Alias] = true
+			} else {
+				fmt.Fprintf(os.Stderr, "⚠ 忽略无效自定义 provider: %s\n", entry.Name())
+			}
 		}
 	}
 	// v1 兼容：旧 custom.json 仍可使用，但新增 provider 不再将 key 内联写入它。
@@ -114,7 +118,7 @@ func profileToProvider(name string, c CustomProfile) Provider {
 		Alias:  name,
 		Name:   "自定义 · " + hostOf(c.Base),
 		Plan:   "custom",
-		KeyEnv: "CX_" + strings.ToUpper(strings.ReplaceAll(safeID(name), "-", "_")) + "_KEY",
+		KeyEnv: "PROVIDERDECK_" + strings.ToUpper(strings.ReplaceAll(safeID(name), "-", "_")) + "_KEY",
 		Key:    c.Key,
 		CLI:    cliForProtocol(c.Protocol),
 		// 单模型，无需版本别名——用裸别名 <name> 即可，避免表格里 版本别名 与 别名 重复。
@@ -145,7 +149,22 @@ func runCustom(cli string, skip bool, pass []string) error {
 // 不在此判定「是否通过」——custom（严格 2xx）与 built-in key 校验（仅 401/403 算 key 错）标准不同，由调用方决定。
 // anthropic: POST {base}/v1/messages；openai: POST {base}/chat/completions（404 则试 /v1/）。
 func probe(protocol, base, model, key string) (reachable bool, code int, msg string) {
-	client := &http.Client{Timeout: 20 * time.Second}
+	client := &http.Client{
+		Timeout: 20 * time.Second,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= 3 {
+				return fmt.Errorf("端点重定向过多")
+			}
+			origin := via[0].URL
+			if !strings.EqualFold(req.URL.Host, origin.Host) {
+				return fmt.Errorf("拒绝跨域端点重定向")
+			}
+			if origin.Scheme == "https" && req.URL.Scheme != "https" {
+				return fmt.Errorf("拒绝 HTTPS 降级重定向")
+			}
+			return nil
+		},
+	}
 	body := fmt.Sprintf(`{"model":%q,"max_tokens":1,"messages":[{"role":"user","content":"ping"}]}`, model)
 
 	var urls []string
@@ -154,6 +173,10 @@ func probe(protocol, base, model, key string) (reachable bool, code int, msg str
 		urls = []string{base + "/v1/messages"}
 		headers["anthropic-version"] = "2023-06-01"
 		headers["x-api-key"] = key
+		headers["Authorization"] = "Bearer " + key
+	} else if protocol == "responses" {
+		body = fmt.Sprintf(`{"model":%q,"input":"ping","max_output_tokens":1}`, model)
+		urls = []string{base + "/responses"}
 		headers["Authorization"] = "Bearer " + key
 	} else {
 		urls = []string{base + "/chat/completions", base + "/v1/chat/completions"}
@@ -171,6 +194,9 @@ func probe(protocol, base, model, key string) (reachable bool, code int, msg str
 		// #nosec G704 -- 这是本地 CLI 用户明确配置的 provider 端点，非远程服务器代理入参。
 		resp, err := client.Do(req)
 		if err != nil {
+			if resp != nil {
+				_ = resp.Body.Close()
+			}
 			continue // 网络/超时；若有备用 URL 继续试
 		}
 		code = resp.StatusCode

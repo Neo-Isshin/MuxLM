@@ -60,6 +60,9 @@ func loadProviderKeys(id string) ([]KeyRecord, error) {
 	if err := json.Unmarshal(b, &f); err != nil {
 		return nil, fmt.Errorf("%s 损坏: %w", path, err)
 	}
+	if f.Version != 1 {
+		return nil, fmt.Errorf("%s 使用不支持的版本: %d", path, f.Version)
+	}
 	if err := validateKeyRecords(id, f.Keys); err != nil {
 		return nil, fmt.Errorf("%s 无效: %w", path, err)
 	}
@@ -111,18 +114,18 @@ type keyCandidate struct {
 }
 
 func getKey(p *Provider, intl *bool, cli, model string) (string, error) {
-	if *intl && !p.hasIntl() {
+	if *intl && !p.hasIntlFor(cli) {
 		*intl = false
 	}
 	cnEnv, intlEnv := p.KeyEnv, ""
-	if p.hasIntl() {
+	if p.hasIntlFor(cli) {
 		intlEnv = p.KeyEnv + "_INTL"
 	}
-	if !*intl && p.hasIntl() && os.Getenv(cnEnv) == "" && loadLegacyKeys()[cnEnv] == "" {
+	if !*intl && p.hasIntlFor(cli) && os.Getenv(cnEnv) == "" && loadLegacyKeys()[cnEnv] == "" {
 		keys, _ := loadProviderKeys(p.providerID())
 		hasCN, hasIntl := false, false
 		for _, k := range keys {
-			if k.Plan != p.planID() {
+			if !keyPlanMatches(p, k.Plan) {
 				continue
 			}
 			if k.Region == "intl" {
@@ -149,9 +152,9 @@ func getKey(p *Provider, intl *bool, cli, model string) (string, error) {
 			return "", err
 		}
 		if len(candidates) == 0 {
-			if p.hasIntl() && !*intl {
+			if p.hasIntlFor(cli) && !*intl {
 				fmt.Fprintf(os.Stderr, "\n%s 尚未配置 %s key。\n", p.Name, planDisplay(p.planID()))
-				*intl = chooseIntl(p)
+				*intl = chooseIntl(p, cli)
 				if *intl {
 					region = "intl"
 				}
@@ -192,7 +195,7 @@ func keyCandidates(p *Provider, region string) ([]keyCandidate, error) {
 	}
 	for i := range keys {
 		k := &keys[i]
-		if k.Plan == p.planID() && k.Region == region {
+		if keyPlanMatches(p, k.Plan) && k.Region == region {
 			out = append(out, keyCandidate{Name: k.Name, Source: k.Backend, Record: k})
 		}
 	}
@@ -271,7 +274,7 @@ func addNamedKey(p *Provider, region, cli, model string) (string, error) {
 	}
 	var names []string
 	for _, k := range keys {
-		if k.Plan == p.planID() && k.Region == region {
+		if keyPlanMatches(p, k.Plan) && k.Region == region {
 			names = append(names, k.Name)
 		}
 	}
@@ -285,7 +288,7 @@ func addNamedKey(p *Provider, region, cli, model string) (string, error) {
 		return "", fmt.Errorf("key 名称不合法（最长 64 字符，不能含控制字符）")
 	}
 	for _, k := range keys {
-		if k.Plan == p.planID() && k.Region == region && k.Name == name {
+		if keyPlanMatches(p, k.Plan) && k.Region == region && k.Name == name {
 			return "", fmt.Errorf("key 名称 %q 已存在，请换一个名称", name)
 		}
 	}
@@ -300,7 +303,7 @@ func addNamedKey(p *Provider, region, cli, model string) (string, error) {
 			return "", fmt.Errorf("已取消")
 		}
 		if p.planID() == "custom" {
-			proto, base := p.probeTarget(cli, intl)
+			proto, base := keyProbeTarget(p, cli, intl)
 			fmt.Fprintln(os.Stderr, "探测自定义端点…")
 			reachable, code, msg := probe(proto, base, model, val)
 			if !reachable || code < 200 || code >= 300 {
@@ -377,7 +380,7 @@ func nextKeyName(existing []string) string {
 }
 
 func checkKey(p *Provider, cli, model string, intl bool, key string) (note string, badKey bool) {
-	proto, base := p.probeTarget(cli, intl)
+	proto, base := keyProbeTarget(p, cli, intl)
 	if base == "" {
 		return "", false
 	}
@@ -395,8 +398,25 @@ func checkKey(p *Provider, cli, model string, intl bool, key string) (note strin
 	}
 }
 
-func chooseIntl(p *Provider) bool {
-	fmt.Fprintf(os.Stderr, "选择端点:\n  1) 国内  %s（默认）\n  2) 海外  %s\n", p.host(false), p.host(true))
+// keyPlanMatches keeps v1 Doubao key metadata usable after the catalog moved
+// that provider from the pay-as-you-go route to the official Coding Plan.
+func keyPlanMatches(p *Provider, storedPlan string) bool {
+	if storedPlan == p.planID() {
+		return true
+	}
+	return p.providerID() == "doubao" && p.planID() == "coding" && storedPlan == "standard"
+}
+
+func keyProbeTarget(p *Provider, cli string, intl bool) (protocol, base string) {
+	protocol, base = p.probeTarget(cli, intl)
+	if protocol == "openai" && p.wireAPI() == "responses" {
+		protocol = "responses"
+	}
+	return protocol, base
+}
+
+func chooseIntl(p *Provider, cli string) bool {
+	fmt.Fprintf(os.Stderr, "选择端点:\n  1) 国内  %s（默认）\n  2) 海外  %s\n", p.hostFor(cli, false), p.hostFor(cli, true))
 	s := promptLine("请选择 [1]: ")
 	return s == "2"
 }

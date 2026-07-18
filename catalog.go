@@ -1,35 +1,62 @@
 package main
 
 import (
-	"encoding/json"
+	_ "embed"
 	"fmt"
 	"os"
+	"reflect"
 	"strings"
 )
 
-// Model 是某个 provider 下的一个具体模型。
+// Model is one concrete model exposed by a provider.
 type Model struct {
-	ID     string `json:"id"`     // 真实模型 id，如 "glm-5.2"，会带版本号
-	Tag    string `json:"tag"`    // 版本别名，如 "glm52"；为空表示无独立别名
-	Latest bool   `json:"latest"` // 是否当前最新（裸别名 alias 解析到这条）
+	ID     string `json:"id"`
+	Tag    string `json:"tag"`
+	Latest bool   `json:"latest"`
 }
 
-// Provider 是一个可切换的供应商。
-// 同一厂商区分 国内(cn,默认) / 海外(intl) 两套端点。
+// Provider describes protocol endpoints, key metadata, and model aliases.
 type Provider struct {
-	ID            string   `json:"id"`             // provider 稳定 ID；同一 provider 的多个套餐/路由共用
-	Alias         string   `json:"alias"`          // 裸别名，永远指向 Latest 模型，如 "glm"
-	Name          string   `json:"name"`           // 展示名
-	Plan          string   `json:"plan,omitempty"` // 套餐/密钥类型，如 standard / coding
+	ID            string   `json:"id"`
+	Alias         string   `json:"alias"`
+	Name          string   `json:"name"`
+	Plan          string   `json:"plan,omitempty"`
 	ClaudeURL     string   `json:"claude_url,omitempty"`
 	OpenAIURL     string   `json:"openai_url,omitempty"`
 	ClaudeURLIntl string   `json:"claude_url_intl,omitempty"`
 	OpenAIURLIntl string   `json:"openai_url_intl,omitempty"`
-	KeyEnv        string   `json:"key_env"` // 该套餐的兼容环境变量名
-	Key           string   `json:"-"`       // 仅用于读取旧 custom.json，永不输出到 catalog
+	KeyEnv        string   `json:"key_env"`
+	Key           string   `json:"-"` // Legacy custom.json only; never accepted in a catalog.
 	CLI           []string `json:"cli"`
 	WireAPI       string   `json:"wire_api,omitempty"`
 	Models        []Model  `json:"models"`
+}
+
+type CatalogFile struct {
+	Version     int               `json:"version"`
+	Revision    string            `json:"revision"`
+	RetiredTags map[string]string `json:"retired_tags,omitempty"`
+	Providers   []Provider        `json:"providers"`
+}
+
+// catalog.json is the single source for both the shipped offline seed and the
+// separately hosted update artifact.
+//
+//go:embed catalog.json
+var embeddedCatalogJSON []byte
+
+var embeddedCatalog = mustLoadEmbeddedCatalog()
+
+// providers remains the immutable scrub/fallback set. It intentionally does
+// not follow remote catalog removals, so retired provider keys stay isolated.
+var providers = embeddedCatalog.Providers
+
+func mustLoadEmbeddedCatalog() CatalogFile {
+	c, err := decodeCatalog(embeddedCatalogJSON)
+	if err != nil {
+		panic("embedded catalog is invalid: " + err.Error())
+	}
+	return *c
 }
 
 func (p *Provider) providerID() string {
@@ -47,8 +74,8 @@ func (p *Provider) planID() string {
 }
 
 func (p *Provider) supports(cli string) bool {
-	for _, c := range p.CLI {
-		if c == cli {
+	for _, candidate := range p.CLI {
+		if candidate == cli {
 			return true
 		}
 	}
@@ -57,6 +84,20 @@ func (p *Provider) supports(cli string) bool {
 
 func (p *Provider) hasIntl() bool {
 	return p.ClaudeURLIntl != "" || p.OpenAIURLIntl != ""
+}
+
+func (p *Provider) hasIntlFor(cli string) bool {
+	switch cli {
+	case "claude":
+		return p.ClaudeURLIntl != ""
+	case "codex":
+		return p.OpenAIURLIntl != ""
+	default: // OpenCode prefers an OpenAI-compatible route when present.
+		if p.OpenAIURL != "" || p.OpenAIURLIntl != "" {
+			return p.OpenAIURLIntl != ""
+		}
+		return p.ClaudeURLIntl != ""
+	}
 }
 
 func (p *Provider) claudeURL(intl bool) string {
@@ -80,8 +121,7 @@ func (p *Provider) wireAPI() string {
 	return p.WireAPI
 }
 
-// probeTarget 按目标 CLI 选出本次启动实际要用的 协议 + base_url，供设置期可用性探测。
-// claude→anthropic 端点；codex→openai 端点；opencode 优先 openai，没有则回退 anthropic。
+// probeTarget selects the protocol and endpoint used by the chosen CLI.
 func (p *Provider) probeTarget(cli string, intl bool) (protocol, base string) {
 	switch cli {
 	case "claude":
@@ -89,15 +129,13 @@ func (p *Provider) probeTarget(cli string, intl bool) (protocol, base string) {
 	case "codex":
 		return "openai", p.openaiURL(intl)
 	default:
-		if u := p.openaiURL(intl); u != "" {
-			return "openai", u
+		if endpoint := p.openaiURL(intl); endpoint != "" {
+			return "openai", endpoint
 		}
 		return "anthropic", p.claudeURL(intl)
 	}
 }
 
-// keyEnv 返回给定区域的 key 环境变量名。海外用 <KeyEnv>_INTL，国内用 KeyEnv。
-// （国内/海外是两套独立账号、不同 key，故按区域区分存储。）
 func (p *Provider) keyEnv(intl bool) string {
 	if intl && p.hasIntl() {
 		return p.KeyEnv + "_INTL"
@@ -105,207 +143,136 @@ func (p *Provider) keyEnv(intl bool) string {
 	return p.KeyEnv
 }
 
-// host 返回该区域的代表域名（交互提示时让用户认出是哪个端点）。
-func (p *Provider) host(intl bool) string {
-	u := p.ClaudeURL
-	if intl {
-		u = p.ClaudeURLIntl
+func (p *Provider) hostFor(cli string, intl bool) string {
+	_, endpoint := p.probeTarget(cli, intl)
+	return hostOf(endpoint)
+}
+
+func hostOf(raw string) string {
+	raw = strings.TrimPrefix(raw, "https://")
+	raw = strings.TrimPrefix(raw, "http://")
+	if i := strings.IndexByte(raw, '/'); i >= 0 {
+		return raw[:i]
 	}
-	if u == "" {
-		u = p.OpenAIURL
-		if intl {
-			u = p.OpenAIURLIntl
-		}
-	}
-	return hostOf(u)
+	return raw
 }
 
-// hostOf 从一个 base_url 里抠出域名。
-func hostOf(u string) string {
-	u = strings.TrimPrefix(u, "https://")
-	u = strings.TrimPrefix(u, "http://")
-	if i := strings.IndexByte(u, '/'); i >= 0 {
-		return u[:i]
-	}
-	return u
-}
-
-// providers 是内置种子 catalog（可由维护者增删；终端用户用别名直接切）。
-// 端点取自 cc-switch 社区 catalog（MIT）并按需核对；带 Intl 的为国内/海外双端点。
-var providers = []Provider{
-	{
-		ID:        "glm",
-		Alias:     "glm",
-		Name:      "智谱 GLM（按量计费 API）",
-		ClaudeURL: "https://open.bigmodel.cn/api/anthropic",
-		OpenAIURL: "https://open.bigmodel.cn/api/paas/v4",
-		KeyEnv:    "GLM_KEY",
-		CLI:       []string{"claude", "codex", "opencode"},
-		Models: []Model{
-			{ID: "glm-5.2", Tag: "glm52", Latest: true},
-			{ID: "glm-5.1", Tag: "glm51"},
-			{ID: "glm-4.7", Tag: "glm47"},
-		},
-	},
-	{
-		ID:   "glm",
-		Plan: "coding",
-		// GLM Coding Plan（订阅）：anthropic 端点与按量计费相同（用 key 区分套餐）；
-		// openai 协议必须用 Coding 专属端点 /api/coding/paas/v4。模型 id 不变。
-		Alias:     "glmc",
-		Name:      "智谱 GLM Coding Plan（订阅）",
-		ClaudeURL: "https://open.bigmodel.cn/api/anthropic",
-		OpenAIURL: "https://open.bigmodel.cn/api/coding/paas/v4",
-		KeyEnv:    "GLM_CODING_KEY",
-		CLI:       []string{"claude", "codex", "opencode"},
-		Models: []Model{
-			{ID: "glm-5.2", Tag: "", Latest: true},
-		},
-	},
-	{
-		ID: "kimi",
-		// 普通 Kimi API 为 openai 协议（/v1）。注意：/anthropic 与 /coding 都是 Coding 订阅端点，
-		// 且只接受 kimi-for-coding，发 kimi-k2.x 会被拒——见下面的 kimic。
-		Alias:     "kimi",
-		Name:      "Moonshot Kimi（按量计费 API）",
-		OpenAIURL: "https://api.moonshot.cn/v1",
-		KeyEnv:    "KIMI_KEY",
-		CLI:       []string{"codex", "opencode"},
-		Models: []Model{
-			{ID: "kimi-k2.6", Tag: "kimi26", Latest: true},
-		},
-	},
-	{
-		ID:   "kimi",
-		Plan: "coding",
-		// Kimi for Coding（订阅）：anthropic 端点 api.kimi.com/coding（注意与普通 api.moonshot.cn 不同域），
-		// 模型必须是 kimi-for-coding（kimi-k2.x 会被拒）。实测 api.moonshot.cn/coding 返回 404，已弃用。
-		Alias:     "kimic",
-		Name:      "Kimi for Coding（订阅）",
-		ClaudeURL: "https://api.kimi.com/coding",
-		KeyEnv:    "KIMI_CODING_KEY",
-		CLI:       []string{"claude", "opencode"},
-		Models: []Model{
-			{ID: "kimi-for-coding", Tag: "", Latest: true},
-		},
-	},
-	{
-		ID:            "minimax",
-		Alias:         "m",
-		Name:          "MiniMax",
-		ClaudeURL:     "https://api.minimaxi.com/anthropic",
-		OpenAIURL:     "https://api.minimaxi.com/v1",
-		ClaudeURLIntl: "https://api.minimax.io/anthropic",
-		OpenAIURLIntl: "https://api.minimax.io/v1",
-		KeyEnv:        "MINIMAX_KEY",
-		CLI:           []string{"claude", "codex", "opencode"},
-		Models: []Model{
-			{ID: "MiniMax-M3", Tag: "m3", Latest: true},
-			{ID: "MiniMax-M2.7-highspeed", Tag: "m27"},
-		},
-	},
-	{
-		ID:            "doubao",
-		Alias:         "doubao",
-		Name:          "火山方舟 Doubao",
-		ClaudeURL:     "https://ark.cn-beijing.volces.com/api/compatible",
-		OpenAIURL:     "https://ark.cn-beijing.volces.com/api/v3",
-		ClaudeURLIntl: "https://ark.ap-southeast.bytepluses.com/api/compatible",
-		OpenAIURLIntl: "https://ark.ap-southeast.bytepluses.com/api/v3",
-		KeyEnv:        "ARK_API_KEY",
-		CLI:           []string{"claude", "codex", "opencode"},
-		Models: []Model{
-			{ID: "doubao-seed-code-preview-latest", Tag: "doubao-code", Latest: true},
-		},
-	},
-	{
-		ID:        "nvidia",
-		Alias:     "nv",
-		Name:      "Nvidia NIM",
-		OpenAIURL: "https://integrate.api.nvidia.com/v1",
-		KeyEnv:    "NVIDIA_API_KEY",
-		CLI:       []string{"codex", "opencode"},
-		Models: []Model{
-			{ID: "openai/gpt-oss-120b", Tag: "nvgpt", Latest: true},
-		},
-	},
-	{
-		ID:        "deepseek",
-		Alias:     "ds",
-		Name:      "DeepSeek",
-		ClaudeURL: "https://api.deepseek.com/anthropic",
-		OpenAIURL: "https://api.deepseek.com",
-		KeyEnv:    "DEEPSEEK_API_KEY",
-		CLI:       []string{"claude", "codex", "opencode"},
-		Models: []Model{
-			{ID: "deepseek-v4-flash", Tag: "dsv4f", Latest: true},
-			{ID: "deepseek-v4-pro", Tag: "dsv4p"},
-		},
-	},
-	{
-		ID:            "siliconflow",
-		Alias:         "sf",
-		Name:          "SiliconFlow 硅基流动",
-		OpenAIURL:     "https://api.siliconflow.cn",
-		OpenAIURLIntl: "https://api.siliconflow.com",
-		KeyEnv:        "SILICONFLOW_KEY",
-		CLI:           []string{"codex", "opencode"},
-		Models: []Model{
-			{ID: "deepseek-ai/DeepSeek-V4-Flash", Tag: "sfv4f", Latest: true},
-			{ID: "deepseek-ai/DeepSeek-V4-Pro", Tag: "sfv4p"},
-		},
-	},
-}
-
-type CatalogFile struct {
-	Version   int        `json:"version"`
-	Revision  string     `json:"revision"`
-	Providers []Provider `json:"providers"`
-}
-
-// catalogProviders 优先使用 update 下载的本地 catalog，无效时安全回退到内置版本。
-func catalogProviders() []Provider {
+func loadCachedCatalog() (*CatalogFile, error) {
 	data, err := readPrivateFile(catalogCacheFile())
 	if err != nil {
-		return providers
+		return nil, err
 	}
-	var c CatalogFile
-	if json.Unmarshal(data, &c) != nil || validateCatalog(&c) != nil {
-		fmt.Fprintln(os.Stderr, "⚠ 本地 catalog 无效，已回退到内置版本")
-		return providers
+	catalog, err := decodeCatalog(data)
+	if err != nil {
+		return nil, err
 	}
-	return c.Providers
+	if err := validateCachedCatalog(catalog); err != nil {
+		return nil, err
+	}
+	return catalog, nil
 }
 
-// Resolved 是别名解析结果。
+// validateCachedCatalog is shared by runtime activation and doctor so they
+// cannot disagree about rollback, revision immutability, or trust evolution.
+func validateCachedCatalog(catalog *CatalogFile) error {
+	if compareCatalogRevision(catalog.Revision, embeddedCatalog.Revision) < 0 {
+		return fmt.Errorf("catalog cache %s 旧于内置版本 %s", catalog.Revision, embeddedCatalog.Revision)
+	}
+	if catalog.Revision == embeddedCatalog.Revision && !reflect.DeepEqual(catalog, &embeddedCatalog) {
+		return fmt.Errorf("catalog cache 与同 revision 的内置 catalog 内容不一致")
+	}
+	if err := validateCatalogEvolution(&embeddedCatalog, catalog); err != nil {
+		return fmt.Errorf("catalog cache 不满足内置信任约束: %w", err)
+	}
+	return nil
+}
+
+func activeCatalogRevision() string {
+	if c, err := loadCachedCatalog(); err == nil {
+		return c.Revision
+	}
+	return embeddedCatalog.Revision
+}
+
+// catalogProviders prefers a valid, non-rollback cache and otherwise uses the
+// embedded seed. A broken update never makes the CLI unusable.
+func catalogProviders() []Provider {
+	c, err := loadCachedCatalog()
+	if err == nil {
+		return c.Providers
+	}
+	if !os.IsNotExist(err) {
+		fmt.Fprintln(os.Stderr, "⚠ 本地 catalog 无效，已回退到内置版本")
+	}
+	return providers
+}
+
 type Resolved struct {
 	Prov  *Provider
 	Model *Model
 }
 
-// buildIndex 把所有别名（裸别名 + 每个 model 的 Tag）建索引。
-// 裸别名 → Latest 模型；Tag → 该版本模型。内置 providers + 用户自定义 custom 别名。
+// buildIndex resolves provider aliases to latest models and version tags to
+// pinned models. Catalog entries win over colliding local custom aliases.
 func buildIndex() map[string]Resolved {
 	idx := make(map[string]Resolved)
-	add := func(ps []Provider) {
+	retiredTags := retiredCatalogTags()
+	add := func(ps []Provider, custom bool) {
 		for i := range ps {
-			p := &ps[i]
+			provider := &ps[i]
+			if custom && retiredTags[provider.Alias] {
+				fmt.Fprintf(os.Stderr, "⚠ 自定义别名 %q 与已退役 catalog 别名冲突，已忽略自定义项\n", provider.Alias)
+				continue
+			}
+			if _, exists := idx[provider.Alias]; custom && exists {
+				fmt.Fprintf(os.Stderr, "⚠ 自定义别名 %q 与 catalog 冲突，已忽略自定义项\n", provider.Alias)
+				continue
+			}
 			var latest *Model
-			for j := range p.Models {
-				m := &p.Models[j]
-				if m.Tag != "" {
-					idx[m.Tag] = Resolved{p, m}
+			for j := range provider.Models {
+				model := &provider.Models[j]
+				if model.Tag != "" {
+					if custom && retiredTags[model.Tag] {
+						continue
+					}
+					if _, exists := idx[model.Tag]; !custom || !exists {
+						idx[model.Tag] = Resolved{provider, model}
+					}
 				}
-				if m.Latest {
-					latest = m
+				if model.Latest {
+					latest = model
 				}
 			}
 			if latest != nil {
-				idx[p.Alias] = Resolved{p, latest}
+				idx[provider.Alias] = Resolved{provider, latest}
 			}
 		}
 	}
-	add(catalogProviders())
-	add(loadCustomProfiles())
+	add(catalogProviders(), false)
+	add(loadCustomProfiles(), true)
 	return idx
+}
+
+func retiredCatalogTags() map[string]bool {
+	state := loadCatalogUpdateState()
+	activeCatalog := &embeddedCatalog
+	if cached, err := loadCachedCatalog(); err == nil {
+		activeCatalog = cached
+	}
+	retired := make(map[string]bool, len(state.RetiredTags)+len(activeCatalog.RetiredTags))
+	for tag := range activeCatalog.RetiredTags {
+		retired[tag] = true
+	}
+	for tag, value := range state.RetiredTags {
+		if value {
+			retired[tag] = true
+		}
+	}
+	active := catalogTagTrustIndex(activeCatalog)
+	for tag := range state.TagTargets {
+		if _, exists := active[tag]; !exists {
+			retired[tag] = true
+		}
+	}
+	return retired
 }

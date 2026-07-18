@@ -7,6 +7,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"golang.org/x/term"
 )
 
 type customProviderFile struct {
@@ -17,14 +19,20 @@ type customProviderFile struct {
 func customProviderPath(id string) string { return filepath.Join(providerDir(id), "provider.json") }
 
 func printConfig(cli string) error {
-	fmt.Printf("\n%-12s %-12s %-12s %-9s %-10s %s\n", "PROVIDER", "ALIAS", "PLAN", "REGION", "KEYS", "ENDPOINT")
-	fmt.Println(strings.Repeat("-", 92))
+	global := cli == "claude" || cli == "opencode"
+	if global {
+		fmt.Println("\nProviderDeck 全局配置中心（Anthropic + OpenAI routes）")
+	} else {
+		fmt.Println("\nProviderDeck OpenAI-compatible 过滤视图（与 cld config 共享配置）")
+	}
+	fmt.Printf("%-12s %-11s %-11s %-14s %-18s %-12s %s\n", "PROVIDER", "ALIAS", "PLAN", "ANTHROPIC", "OPENAI / WIRE", "KEY REGIONS", "KEYS")
+	fmt.Println(strings.Repeat("-", 96))
 	seen := map[string]bool{}
 	all := append([]Provider{}, catalogProviders()...)
 	all = append(all, loadCustomProfiles()...)
 	for i := range all {
 		p := &all[i]
-		if !p.supports(cli) {
+		if !global && p.OpenAIURL == "" && p.OpenAIURLIntl == "" {
 			continue
 		}
 		key := p.providerID() + "/" + p.planID()
@@ -38,7 +46,7 @@ func printConfig(cli string) error {
 		}
 		cn, intl, names := 0, 0, []string{}
 		for _, k := range keys {
-			if k.Plan != p.planID() {
+			if !keyPlanMatches(p, k.Plan) {
 				continue
 			}
 			if k.Region == "intl" {
@@ -68,11 +76,9 @@ func printConfig(cli string) error {
 		if p.hasIntl() {
 			region += fmt.Sprintf("/intl:%d", intl)
 		}
-		endpoint := p.ClaudeURL
-		if cli != "claude" && p.OpenAIURL != "" {
-			endpoint = p.OpenAIURL
-		}
-		fmt.Printf("%-12s %-12s %-12s %-9s %-10s %s\n", p.providerID(), p.Alias, p.planID(), region, fmt.Sprintf("%d%s", cn+intl, envStatus), hostOf(endpoint))
+		fmt.Printf("%-12s %-11s %-11s %-14s %-18s %-12s %d%s\n",
+			p.providerID(), p.Alias, p.planID(), routeSummary(p.ClaudeURL, p.ClaudeURLIntl, ""),
+			routeSummary(p.OpenAIURL, p.OpenAIURLIntl, p.wireAPI()), region, cn+intl, envStatus)
 		if len(names) > 0 {
 			fmt.Printf("  key names: %s\n", strings.Join(names, ", "))
 		}
@@ -84,15 +90,103 @@ func printConfig(cli string) error {
 	return nil
 }
 
-func runAdd(cli string) error {
+func routeSummary(domestic, intl, wire string) string {
+	if domestic == "" && intl == "" {
+		return "—"
+	}
+	regions := "cn"
+	if domestic == "" {
+		regions = "intl"
+	} else if intl != "" {
+		regions = "cn+intl"
+	}
+	if wire != "" {
+		return wire + " · " + regions
+	}
+	return regions
+}
+
+func runConfig(cli string) error {
+	if err := printConfig(cli); err != nil {
+		return err
+	}
+	if !term.IsTerminal(int(os.Stdin.Fd())) || !term.IsTerminal(int(os.Stdout.Fd())) {
+		return nil
+	}
+	return runConfigMenu(cli)
+}
+
+func runConfigMenu(cli string) error {
+	global := cli == "claude" || cli == "opencode"
+	for {
+		fmt.Fprintln(os.Stderr, "\n配置操作:")
+		fmt.Fprintln(os.Stderr, "  1) 添加 provider / 具名 key")
+		fmt.Fprintln(os.Stderr, "  2) 按别名增加 key")
+		fmt.Fprintln(os.Stderr, "  3) 删除 provider 本地配置")
+		fmt.Fprintln(os.Stderr, "  4) 更新 catalog")
+		fmt.Fprintln(os.Stderr, "  5) 刷新列表")
+		fmt.Fprintln(os.Stderr, "  0) 退出")
+		switch promptLine("请选择 [0]: ") {
+		case "", "0":
+			return nil
+		case "1":
+			if err := runAddScoped(cli, global); err != nil {
+				fmt.Fprintln(os.Stderr, "✗ "+err.Error())
+			}
+		case "2":
+			alias := promptLine("provider/模型别名: ")
+			if alias != "" {
+				if err := runSetKeyScoped(cli, alias, global); err != nil {
+					fmt.Fprintln(os.Stderr, "✗ "+err.Error())
+				}
+			}
+		case "3":
+			alias := promptLine("provider/模型别名: ")
+			if alias != "" {
+				if err := runRemoveScoped(alias, cli, global); err != nil {
+					fmt.Fprintln(os.Stderr, "✗ "+err.Error())
+				}
+			}
+		case "4":
+			if err := runCatalogUpdate(); err != nil {
+				fmt.Fprintln(os.Stderr, "✗ "+err.Error())
+			}
+		case "5":
+			if err := printConfig(cli); err != nil {
+				return err
+			}
+		default:
+			fmt.Fprintln(os.Stderr, "⚠ 无效选择")
+		}
+	}
+}
+
+func runRemoveScoped(alias, cli string, global bool) error {
+	r, ok := buildIndex()[alias]
+	if !ok {
+		return fmt.Errorf("未知别名: %s", alias)
+	}
+	if !global && cli == "codex" && r.Prov.OpenAIURL == "" && r.Prov.OpenAIURLIntl == "" {
+		return fmt.Errorf("%s 不在 OpenAI-compatible 过滤视图中", alias)
+	}
+	return runRemove(alias)
+}
+
+func runAdd(cli string) error { return runAddScoped(cli, false) }
+
+func runAddScoped(cli string, global bool) error {
 	var choices []Provider
 	for _, p := range catalogProviders() {
-		if p.supports(cli) {
+		if global || p.supports(cli) {
 			choices = append(choices, p)
 		}
 	}
 	sort.Slice(choices, func(i, j int) bool { return choices[i].Alias < choices[j].Alias })
-	fmt.Fprintf(os.Stderr, "\n选择要配置的 provider/套餐（目标 %s）:\n", cli)
+	target := cli
+	if global {
+		target = "全局 Anthropic + OpenAI"
+	}
+	fmt.Fprintf(os.Stderr, "\n选择要配置的 provider/套餐（视图 %s）:\n", target)
 	for i, p := range choices {
 		fmt.Fprintf(os.Stderr, "  %d) %-10s %s / %s\n", i+1, p.Alias, p.Name, planDisplay(p.planID()))
 	}
@@ -102,46 +196,85 @@ func runAdd(cli string) error {
 		return fmt.Errorf("已取消")
 	}
 	if n == len(choices)+1 {
+		if global {
+			return runAddCustom("opencode")
+		}
 		return runAddCustom(cli)
 	}
 	if n < 1 || n > len(choices) {
 		return fmt.Errorf("无效选择")
 	}
 	p := &choices[n-1]
+	validationCLI := cli
+	if global {
+		validationCLI = chooseValidationCLI(p)
+	}
 	region := "cn"
-	if p.hasIntl() && chooseIntl(p) {
+	if p.hasIntlFor(validationCLI) && chooseIntl(p, validationCLI) {
 		region = "intl"
 	}
 	model := latestModel(p)
-	_, err := addNamedKey(p, region, cli, model)
+	_, err := addNamedKey(p, region, validationCLI, model)
 	return err
 }
 
 func runSetKey(cli, alias string) error {
+	return runSetKeyScoped(cli, alias, false)
+}
+
+func runSetKeyScoped(cli, alias string, global bool) error {
 	r, ok := buildIndex()[alias]
 	if !ok {
 		return fmt.Errorf("未知别名: %s", alias)
 	}
-	if !r.Prov.supports(cli) {
+	if !global && !r.Prov.supports(cli) {
 		return fmt.Errorf("%s 不支持 %s", alias, cli)
 	}
+	validationCLI := cli
+	if global {
+		validationCLI = chooseValidationCLI(r.Prov)
+	}
 	region := "cn"
-	if r.Prov.hasIntl() && chooseIntl(r.Prov) {
+	if r.Prov.hasIntlFor(validationCLI) && chooseIntl(r.Prov, validationCLI) {
 		region = "intl"
 	}
-	_, err := addNamedKey(r.Prov, region, cli, r.Model.ID)
+	_, err := addNamedKey(r.Prov, region, validationCLI, r.Model.ID)
 	return err
 }
 
+func chooseValidationCLI(p *Provider) string {
+	hasAnthropic := p.ClaudeURL != "" || p.ClaudeURLIntl != ""
+	hasOpenAI := p.OpenAIURL != "" || p.OpenAIURLIntl != ""
+	if hasAnthropic && hasOpenAI {
+		fmt.Fprintln(os.Stderr, "选择此 key 的验证 route:")
+		fmt.Fprintln(os.Stderr, "  1) Anthropic-compatible（默认）")
+		fmt.Fprintln(os.Stderr, "  2) OpenAI-compatible")
+		if promptLine("请选择 [1]: ") == "2" {
+			return "codex"
+		}
+		return "claude"
+	}
+	if hasOpenAI {
+		return "codex"
+	}
+	return "claude"
+}
+
 func runAddCustom(cli string) error {
-	fmt.Fprintf(os.Stderr, "\n新增自定义 provider（目标 %s）\n", cli)
+	target := cli
+	if cli == "opencode" {
+		target = "OpenAI / Anthropic"
+	}
+	fmt.Fprintf(os.Stderr, "\n新增自定义 provider（route %s）\n", target)
 	alias := strings.ToLower(promptLine("别名: "))
 	if safeID(alias) != alias || alias == "" {
 		return fmt.Errorf("别名只能包含小写字母、数字、点、下划线或短横线")
 	}
-	reserved := map[string]bool{"config": true, "add": true, "set-key": true, "remove": true, "update": true, "list": true, "custom": true}
-	if reserved[alias] {
+	if isReservedAlias(alias) {
 		return fmt.Errorf("别名 %q 是保留命令", alias)
+	}
+	if retiredCatalogTags()[alias] {
+		return fmt.Errorf("别名 %q 曾用于已退役 catalog 模型，不能复用", alias)
 	}
 	if _, exists := buildIndex()[alias]; exists {
 		return fmt.Errorf("别名 %q 已存在", alias)
@@ -169,7 +302,7 @@ func runAddCustom(cli string) error {
 		return fmt.Errorf("model 不能为空")
 	}
 	id := "custom-" + alias
-	p := Provider{ID: id, Alias: alias, Name: "自定义 · " + hostOf(base), Plan: "custom", KeyEnv: "CX_" + strings.ToUpper(strings.ReplaceAll(alias, "-", "_")) + "_KEY", Models: []Model{{ID: model, Latest: true}}}
+	p := Provider{ID: id, Alias: alias, Name: "自定义 · " + hostOf(base), Plan: "custom", KeyEnv: "PROVIDERDECK_" + strings.ToUpper(strings.ReplaceAll(alias, "-", "_")) + "_KEY", Models: []Model{{ID: model, Latest: true}}}
 	if protocol == "anthropic" {
 		p.ClaudeURL = base
 		p.CLI = []string{"claude", "opencode"}
@@ -197,6 +330,10 @@ func runRemove(alias string) error {
 	if strings.ToLower(promptLine(fmt.Sprintf("确认删除 provider %q 的全部已保存 key？输入 yes: ", id))) != "yes" {
 		return fmt.Errorf("已取消")
 	}
+	paths, err := providerRemovalPaths(id)
+	if err != nil {
+		return err
+	}
 	keys, err := loadProviderKeys(id)
 	if err != nil {
 		return err
@@ -206,15 +343,59 @@ func runRemove(alias string) error {
 			return fmt.Errorf("删除 key %q 失败: %w", k.Name, err)
 		}
 	}
-	path := providerDir(id)
-	if fi, err := os.Lstat(path); err == nil && fi.Mode()&os.ModeSymlink != 0 {
-		return fmt.Errorf("拒绝删除符号链接目录")
-	}
-	if err := os.RemoveAll(path); err != nil {
-		return err
+	for _, path := range paths {
+		if err := os.RemoveAll(path); err != nil {
+			return err
+		}
 	}
 	fmt.Fprintf(os.Stderr, "✓ 已删除 %s 的本地配置\n", id)
 	return nil
+}
+
+// providerRemovalPaths resolves and validates every deletion target before any
+// secret or metadata is removed. This prevents a symlinked config/providers
+// parent from redirecting RemoveAll outside ProviderDeck's configuration tree.
+func providerRemovalPaths(id string) ([]string, error) {
+	if id == "" || safeID(id) != id {
+		return nil, fmt.Errorf("非法 provider id")
+	}
+	var paths []string
+	for _, root := range providerDirsForRead() {
+		configRoot := filepath.Dir(root)
+		configInfo, err := os.Lstat(configRoot)
+		if os.IsNotExist(err) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		if configInfo.Mode()&os.ModeSymlink != 0 || !configInfo.IsDir() {
+			return nil, fmt.Errorf("拒绝从不安全的配置目录删除: %s", configRoot)
+		}
+		rootInfo, err := os.Lstat(root)
+		if os.IsNotExist(err) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		if rootInfo.Mode()&os.ModeSymlink != 0 || !rootInfo.IsDir() {
+			return nil, fmt.Errorf("拒绝从不安全的 provider 配置目录删除: %s", root)
+		}
+		path := filepath.Join(root, id)
+		pathInfo, err := os.Lstat(path)
+		if os.IsNotExist(err) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		if pathInfo.Mode()&os.ModeSymlink != 0 || !pathInfo.IsDir() {
+			return nil, fmt.Errorf("拒绝删除不安全的 provider 配置路径: %s", path)
+		}
+		paths = append(paths, path)
+	}
+	return paths, nil
 }
 
 func latestModel(p *Provider) string {
