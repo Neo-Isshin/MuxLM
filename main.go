@@ -7,42 +7,40 @@ import (
 	"strings"
 )
 
-const helpText = `ez-switch — 快速切换模型（一个工具，三个入口）
-
-  cdx <别名>  = codex    + <别名>
-  cld <别名>  = claude   + <别名>
-  opc <别名>  = opencode + <别名>
+const helpText = appName + ` — 快速切换 Claude Code / Codex / OpenCode 的 provider 与模型
 
 用法:
-  cdx|cld|opc <别名> [-m 模型] [-y] [--intl] [--dry-run] [-- 透传给底层CLI的参数...]
+  cdx|cld|opc <别名> [选项] [-- <底层 CLI 参数...>]
 
-配置命令:
-  config             列出当前 CLI 可用的 provider 与 key 状态（不显示 key）
-  add                增加 provider 或为已有 provider 添加具名 key
-  set-key <别名>  为 provider 增加另一个具名 key
-  remove <别名>   删除 provider 的本地 key/配置（需确认）
-  update             从受信 HTTPS 源更新 catalog（不更新二进制）
+入口:
+  cdx <别名>   使用 Codex
+  cld <别名>   使用 Claude Code
+  opc <别名>   使用 OpenCode
+
+命令:
+  <入口> list                 查看 provider / 模型别名
+  <入口> doctor               检查本地 catalog / 配置 / 底层 CLI
+  <入口> config               查看和管理 provider / key
+  <入口> add                  添加 provider 或具名 key
+  <入口> set-key <别名>       增加一把具名 key
+  <入口> remove <别名>        删除本地 provider 配置
+  <入口> update               立即检查程序并更新 catalog
+  <入口> version              显示程序与 catalog 版本
 
 选项:
-  -m, --model <id>   覆盖模型 id
-  -y, --yes          跳过权限/审批（claude/codex）；opencode 写入宽松权限配置
-      --intl         使用海外端点（MiniMax/SiliconFlow 等）
-      --dry-run      只打印将执行的命令，不真正启动
-  -h, --help         显示此帮助
-  list / ls          显示对照表
-
-别名规则:
-  · 裸别名（glm/m/ds...）永远 = 该厂商最新模型
-  · 版本别名（glm52/m3...）= 裸别名 + 版本号，锁定具体版本
-  · -m 可在任意别名上再次覆盖模型
+  -m, --model <id>            覆盖 catalog 中的模型 id
+      --intl                  使用海外端点
+  -y, --yes                   跳过底层 CLI 安全确认（危险）
+      --dry-run               仅预览，不启动底层 CLI
+  -h, --help                  显示帮助
 
 示例:
-  cld glm                       # claude + GLM 最新 (glm-5.2)
-  cdx glm                       # codex + GLM
-  opc m                         # opencode + MiniMax
-  cld m -y                      # claude + MiniMax + 跳过权限
-  cdx m --intl                  # codex + MiniMax 海外端点
-  opc ds -m deepseek-reasoner
+  cld glm                     Claude Code + GLM 最新模型
+  cdx m --intl                Codex + MiniMax 海外端点
+  opc ds -m deepseek-v4-pro   OpenCode + 指定模型
+  cld glm -- "fix the bug"    将 -- 后的参数原样传给 Claude Code
+
+裸别名始终跟随 catalog 的最新模型；版本别名在保留期间锁定具体模型。
 `
 
 func main() {
@@ -62,28 +60,54 @@ func main() {
 		if len(args) != 1 {
 			fail("update 不接受额外参数")
 		}
-		if err := runCatalogUpdate(); err != nil {
+		if err := runUpdate(); err != nil {
+			fail(err.Error())
+		}
+		return
+	}
+	// doctor 必须保持纯本地、只读，因此在启动更新门之前处理。
+	if len(args) > 0 && args[0] == "doctor" {
+		if len(args) != 1 {
+			fail("doctor 不接受额外参数")
+		}
+		if err := runDoctor(os.Stdout); err != nil {
 			fail(err.Error())
 		}
 		return
 	}
 
-	if len(args) == 0 || hasAny(args, "-h", "--help", "help") {
+	checkUpdatesOnStartup()
+
+	if len(args) > 0 && (args[0] == "version" || args[0] == "--version") {
+		if len(args) != 1 {
+			fail("version 不接受额外参数")
+		}
+		printVersion()
+		return
+	}
+	if len(args) == 0 {
+		if cli == "" {
+			fmt.Print(helpText)
+		} else {
+			printQuickStart(prog, cli)
+		}
+		return
+	}
+	if isHelpCommand(args) {
 		fmt.Print(helpText)
-		printTable()
 		return
 	}
 	if args[0] == "list" || args[0] == "ls" {
+		if len(args) != 1 {
+			fail("list 不接受额外参数")
+		}
 		printTable()
 		return
 	}
 
 	// argv[0] 决定目标 CLI：cdx→codex, cld→claude, opc→opencode
 	if cli == "" {
-		// 以 ez-switch（或其它名字）直接运行：只显示帮助/对照表，不启动
-		fmt.Print(helpText)
-		printTable()
-		return
+		fail("providerdeck 不能直接启动模型；请使用 cdx / cld / opc\n例如: cdx glm")
 	}
 
 	if len(args) > 0 {
@@ -92,7 +116,7 @@ func main() {
 			if len(args) != 1 {
 				fail("config 不接受额外参数")
 			}
-			if err := printConfig(cli); err != nil {
+			if err := runConfig(cli); err != nil {
 				fail(err.Error())
 			}
 			return
@@ -161,8 +185,7 @@ func main() {
 	}
 
 	if alias == "" {
-		fmt.Print(helpText)
-		printTable()
+		printQuickStart(prog, cli)
 		return
 	}
 
@@ -180,11 +203,14 @@ func main() {
 	idx := buildIndex()
 	r, ok := idx[alias]
 	if !ok {
-		fail("未知别名: " + alias + "\n运行 `cld list` 查看对照表")
+		fail(fmt.Sprintf("未知别名: %s\n运行 `%s list` 查看可用别名", alias, prog))
 	}
 	if !r.Prov.supports(cli) {
 		fail(fmt.Sprintf("%s 不支持 %s（端点协议限制，无代理）。\n支持: %s",
 			r.Prov.Name, cli, strings.Join(r.Prov.CLI, ", ")))
+	}
+	if intl && !r.Prov.hasIntlFor(cli) {
+		fail(fmt.Sprintf("%s 没有可供 %s 使用的海外端点", r.Prov.Name, cli))
 	}
 
 	chosen := r.Model.ID
@@ -214,18 +240,28 @@ func main() {
 	}
 }
 
-func hasAny(args []string, flags ...string) bool {
-	for _, a := range args {
-		if a == "--" {
-			return false
-		}
-		for _, f := range flags {
-			if a == f {
-				return true
-			}
-		}
+func printQuickStart(prog, cli string) {
+	fmt.Printf("%s：用指定 provider / model 启动 %s\n", prog, cli)
+	fmt.Printf("用法: %s <别名> [选项] [-- <底层 CLI 参数>]\n", prog)
+	fmt.Printf("示例: %s glm\n", prog)
+	fmt.Printf("可用别名: %s list    配置: %s config\n", prog, prog)
+	fmt.Printf("完整帮助: %s --help\n", prog)
+}
+
+func isReservedAlias(alias string) bool {
+	switch alias {
+	case "config", "add", "set-key", "remove", "update", "version", "doctor", "list", "ls", "help", "custom":
+		return true
+	default:
+		return false
 	}
-	return false
+}
+
+func isHelpCommand(args []string) bool {
+	if len(args) == 0 {
+		return false
+	}
+	return args[0] == "-h" || args[0] == "--help" || args[0] == "help"
 }
 
 func fail(msg string) {
@@ -237,10 +273,8 @@ func fail(msg string) {
 
 func printTable() {
 	fmt.Println()
-	fmt.Println("  " +
-		pad("别名", 8) + pad("版本别名", 26) + pad("厂商", 30) + pad("默认模型", 36) +
-		pad("claude", 7) + pad("codex", 7) + pad("opencode", 9) + "intl")
-	fmt.Println("  " + strings.Repeat("-", 126))
+	fmt.Println("  " + pad("别名（版本）", 25) + pad("Provider", 29) + pad("默认模型", 36) + pad("入口", 13) + "intl")
+	fmt.Println("  " + strings.Repeat("-", 107))
 	all := append([]Provider{}, catalogProviders()...)
 	all = append(all, loadCustomProfiles()...)
 	for i := range all {
@@ -255,26 +289,28 @@ func printTable() {
 				latest = m.ID
 			}
 		}
-		tagStr := strings.Join(tags, " · ")
-		if tagStr == "" {
-			tagStr = "-"
+		alias := p.Alias
+		if len(tags) > 0 {
+			alias += " (" + strings.Join(tags, ",") + ")"
 		}
 		intlMark := "—"
 		if p.hasIntl() {
 			intlMark = "--intl"
 		}
-		fmt.Println("  " +
-			pad(p.Alias, 8) + pad(tagStr, 26) + pad(p.Name, 30) + pad(latest, 36) +
-			pad(yes(p.supports("claude")), 7) + pad(yes(p.supports("codex")), 7) +
-			pad(yes(p.supports("opencode")), 9) + intlMark)
+		fmt.Println("  " + pad(alias, 25) + pad(p.Name, 29) + pad(latest, 36) + pad(entrySummary(p), 13) + intlMark)
 	}
 }
 
-func yes(b bool) string {
-	if b {
-		return "✅"
+func entrySummary(p *Provider) string {
+	var entries []string
+	for _, item := range []struct {
+		cli, entry string
+	}{{"claude", "cld"}, {"codex", "cdx"}, {"opencode", "opc"}} {
+		if p.supports(item.cli) {
+			entries = append(entries, item.entry)
+		}
 	}
-	return "—"
+	return strings.Join(entries, "/")
 }
 
 func pad(s string, width int) string {

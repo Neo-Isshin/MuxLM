@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
 )
 
 // ---- claude: inline env + exec（不写全局 settings.json）----
@@ -40,7 +42,7 @@ func launchCodex(p *Provider, model string, skip, intl bool, pass []string) erro
 	if url == "" {
 		return fmt.Errorf("%s 没有 codex(openai) 端点", p.Name)
 	}
-	dir, err := os.MkdirTemp("", "cx-codex-*")
+	dir, err := os.MkdirTemp("", "providerdeck-codex-*")
 	if err != nil {
 		return err
 	}
@@ -49,10 +51,10 @@ func launchCodex(p *Provider, model string, skip, intl bool, pass []string) erro
 	if err := os.WriteFile(filepath.Join(dir, "auth.json"), ab, 0o600); err != nil {
 		return err
 	}
-	toml := fmt.Sprintf(`model_provider = "cx"
+	toml := fmt.Sprintf(`model_provider = "providerdeck"
 model = %q
-[model_providers.cx]
-name = "cx"
+[model_providers.providerdeck]
+name = "ProviderDeck"
 base_url = %q
 wire_api = %q
 `, model, url, p.wireAPI())
@@ -78,7 +80,7 @@ func launchOpencode(p *Provider, model string, skip, intl bool, pass []string) e
 		return err
 	}
 	url := p.openaiURL(intl)
-	npm := "@ai-sdk/openai-compatible"
+	npm := openCodeNPM(p)
 	if url == "" {
 		url = p.claudeURL(intl)
 		npm = "@ai-sdk/anthropic"
@@ -86,7 +88,7 @@ func launchOpencode(p *Provider, model string, skip, intl bool, pass []string) e
 	if url == "" {
 		return fmt.Errorf("%s 没有可用端点", p.Name)
 	}
-	dir, err := os.MkdirTemp("", "cx-opencode-*")
+	dir, err := os.MkdirTemp("", "providerdeck-opencode-*")
 	if err != nil {
 		return err
 	}
@@ -94,9 +96,9 @@ func launchOpencode(p *Provider, model string, skip, intl bool, pass []string) e
 	cfg := map[string]any{
 		"$schema": "https://opencode.ai/config.json",
 		"provider": map[string]any{
-			"cx": map[string]any{
+			"providerdeck": map[string]any{
 				"npm":  npm,
-				"name": "cx",
+				"name": appName,
 				"options": map[string]any{
 					"baseURL": url,
 					"apiKey":  key,
@@ -115,7 +117,7 @@ func launchOpencode(p *Provider, model string, skip, intl bool, pass []string) e
 	if err := os.WriteFile(filepath.Join(dir, "opencode.json"), cb, 0o600); err != nil {
 		return err
 	}
-	args := []string{"--model", "cx/" + model}
+	args := []string{"--model", "providerdeck/" + model}
 	if skip {
 		args = append(args, "--auto")
 	}
@@ -131,10 +133,57 @@ func run(cmd *exec.Cmd) error {
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
+	// Keep the child in our foreground process group so interactive CLIs can
+	// continue reading from the terminal. Signals sent only to ProviderDeck are
+	// forwarded once; a second signal is treated as an explicit force-exit.
+	signals := make(chan os.Signal, 4)
+	signal.Notify(signals, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP, syscall.SIGQUIT)
+	defer signal.Stop(signals)
+	if err := cmd.Start(); err != nil {
 		return err
 	}
-	return nil
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+	forwarded := false
+	for {
+		select {
+		case err := <-done:
+			return normalizeCommandError(err)
+		case received := <-signals:
+			if !forwarded {
+				forwarded = true
+				// A terminal usually signals the whole foreground process group;
+				// forwarding also covers signals sent only to ProviderDeck itself.
+				_ = cmd.Process.Signal(received)
+				continue
+			}
+			// Do not swallow repeated Ctrl-C/termination requests when a child
+			// ignores the graceful signal. Wait still runs so caller defers can
+			// remove temporary configs before ProviderDeck exits.
+			_ = cmd.Process.Kill()
+		}
+	}
+}
+
+type commandExitError struct {
+	cause error
+	code  int
+}
+
+func (e *commandExitError) Error() string { return e.cause.Error() }
+func (e *commandExitError) Unwrap() error { return e.cause }
+func (e *commandExitError) ExitCode() int { return e.code }
+
+func normalizeCommandError(err error) error {
+	if err == nil {
+		return nil
+	}
+	if exit, ok := err.(*exec.ExitError); ok {
+		if status, ok := exit.Sys().(syscall.WaitStatus); ok && status.Signaled() {
+			return &commandExitError{cause: err, code: 128 + int(status.Signal())}
+		}
+	}
+	return err
 }
 
 // preview 打印将要执行的命令（--dry-run）。
@@ -142,14 +191,22 @@ func preview(cli string, p *Provider, model string, skip, intl bool, pass []stri
 	// key 来源描述：自定义别名是内联 key，其它走 env（按区域）
 	var keyDesc string
 	if p.Key != "" {
-		keyDesc = "key=内联(自定义别名)"
+		keyDesc = "内联（旧版自定义配置）"
 	} else {
 		envName := p.keyEnv(intl)
 		status := configuredKeyStatus(p, intl)
-		keyDesc = envName + "=" + status
+		keyDesc = envName + ": " + status
 	}
-	fmt.Printf("【DRY-RUN】 %s | %s | model=%s | skip=%v | intl=%v | %s\n",
-		cli, p.Name, model, skip, intl, keyDesc)
+	region := "cn"
+	if intl {
+		region = "intl"
+	}
+	mode := region
+	if skip {
+		mode += ", unsafe"
+	}
+	fmt.Printf("DRY RUN  %s → %s / %s [%s]\n", cli, p.Name, model, mode)
+	fmt.Printf("key      %s\n", keyDesc)
 	switch cli {
 	case "claude":
 		args := []string{"--model", model}
@@ -173,13 +230,13 @@ func preview(cli string, p *Provider, model string, skip, intl bool, pass []stri
 		fmt.Printf("  env  CODEX_HOME=<tmp>  base_url=%s  wire_api=%s\n", p.openaiURL(intl), p.wireAPI())
 		fmt.Printf("  run  codex %s\n", joinArgs(args))
 	case "opencode":
-		args := []string{"--model", "cx/" + model}
+		args := []string{"--model", "providerdeck/" + model}
 		if skip {
 			args = append(args, "--auto")
 		}
 		args = append(args, pass...)
 		url := p.openaiURL(intl)
-		npm := "@ai-sdk/openai-compatible"
+		npm := openCodeNPM(p)
 		if url == "" {
 			url = p.claudeURL(intl)
 			npm = "@ai-sdk/anthropic"
@@ -189,7 +246,33 @@ func preview(cli string, p *Provider, model string, skip, intl bool, pass []stri
 	}
 }
 
-func joinArgs(a []string) string { return strings.Join(a, " ") }
+func openCodeNPM(p *Provider) string {
+	if p.openaiURL(false) != "" && p.wireAPI() == "responses" {
+		return "@ai-sdk/openai"
+	}
+	return "@ai-sdk/openai-compatible"
+}
+
+func joinArgs(args []string) string {
+	quoted := make([]string, 0, len(args))
+	for _, arg := range args {
+		quoted = append(quoted, quoteArg(arg))
+	}
+	return strings.Join(quoted, " ")
+}
+
+func quoteArg(arg string) string {
+	if arg == "" {
+		return "''"
+	}
+	for _, r := range arg {
+		if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || strings.ContainsRune("_@%+=:,./-", r) {
+			continue
+		}
+		return "'" + strings.ReplaceAll(arg, "'", "'\"'\"'") + "'"
+	}
+	return arg
+}
 
 func configuredKeyStatus(p *Provider, intl bool) string {
 	region := "cn"
@@ -209,17 +292,29 @@ func childEnv(extra map[string]string) []string {
 		"ANTHROPIC_AUTH_TOKEN": true, "ANTHROPIC_API_KEY": true, "ANTHROPIC_BASE_URL": true,
 		"OPENAI_API_KEY": true, "CODEX_HOME": true, "OPENCODE_CONFIG_DIR": true,
 	}
-	all := append([]Provider{}, catalogProviders()...)
+	// Always retain the built-in list as a scrub set. A remote catalog may
+	// remove a provider, but that must never make its old key visible again.
+	all := append([]Provider{}, providers...)
+	all = append(all, catalogProviders()...)
 	all = append(all, loadCustomProfiles()...)
 	for _, p := range all {
 		blocked[p.KeyEnv] = true
 		blocked[p.KeyEnv+"_INTL"] = true
+	}
+	for name := range loadLegacyKeys() {
+		blocked[name] = true
 	}
 	var env []string
 	for _, kv := range os.Environ() {
 		name := kv
 		if i := strings.IndexByte(kv, '='); i >= 0 {
 			name = kv[:i]
+		}
+		providerNamespace := strings.HasPrefix(name, "PROVIDERDECK_PROVIDER_") || strings.HasPrefix(name, "CX_PROVIDER_")
+		customKey := (strings.HasPrefix(name, "PROVIDERDECK_") || strings.HasPrefix(name, "CX_")) &&
+			(strings.HasSuffix(name, "_KEY") || strings.HasSuffix(name, "_KEY_INTL"))
+		if providerNamespace || customKey {
+			continue
 		}
 		if !blocked[name] {
 			env = append(env, kv)

@@ -1,4 +1,4 @@
-module ez-switch
+module github.com/Neo-Isshin/ProviderDeck/v2
 
 go 1.22
 
@@ -6,4 +6,4 @@ toolchain go1.26.5
 
 require golang.org/x/term v0.28.0
 
-require golang.org/x/sys v0.29.0 // indirect
+require golang.org/x/sys v0.29.0
