@@ -123,7 +123,7 @@ func runConfigMenu(cli string) error {
 		fmt.Fprintln(os.Stderr, "  1) 添加 provider / 具名 key")
 		fmt.Fprintln(os.Stderr, "  2) 按别名增加 key")
 		fmt.Fprintln(os.Stderr, "  3) 删除 provider 本地配置")
-		fmt.Fprintln(os.Stderr, "  4) 更新 catalog")
+		fmt.Fprintln(os.Stderr, "  4) 更新模型列表")
 		fmt.Fprintln(os.Stderr, "  5) 刷新列表")
 		fmt.Fprintln(os.Stderr, "  0) 退出")
 		switch promptLine("请选择 [0]: ") {

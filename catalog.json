@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "revision": "2026-07-18.2",
+  "revision": "2026-07-20.1",
   "retired_tags": {
     "doubao-code": "doubao/standard/doubao-seed-code-preview-latest",
     "m3": "minimax/standard/MiniMax-M3"
@@ -51,7 +51,10 @@
       "openai_url": "https://api.kimi.com/coding/v1",
       "key_env": "KIMI_CODING_KEY",
       "cli": ["claude", "codex", "opencode"],
-      "models": [{"id": "kimi-for-coding", "tag": "", "latest": true}]
+      "models": [
+        {"id": "k3", "tag": "k3", "latest": true},
+        {"id": "kimi-for-coding", "tag": "", "latest": false}
+      ]
     },
     {
       "id": "minimax",

@@ -55,7 +55,10 @@ cdx glm --dry-run          # 只预览配置，不实际启动
 <入口> add                  添加 provider key 或自定义 provider
 <入口> set-key <别名>       增加一把具名 key
 <入口> remove <别名>        删除本地 provider 配置
-<入口> update               更新 catalog 并检查程序版本
+<入口> update               更新模型列表
+<入口> update --tool        更新已检测到的 Codex、Claude Code、OpenCode
+<入口> update --self        更新 MuxLM
+<入口> update --all         全部更新
 <入口> doctor               执行本地只读诊断
 <入口> version              显示程序和 catalog 版本
 <入口> --help               显示完整帮助
@@ -67,15 +70,34 @@ cdx glm --dry-run          # 只预览配置，不实际启动
 
 Catalog 更新并非只有“新增”：新 revision 可以增加 provider/model，也可以退役并删除旧模型或别名，以及移动 `latest`。永久 tombstone 会阻止已退役的版本别名被重新使用；严格校验还会拦截回滚、同 revision 篡改和 provider 信任字段的静默变化。
 
-发现新版程序时只会提示，不会静默替换二进制。
+正常启动时发现新版程序只会提示，不会静默替换二进制。
 
 ```bash
 MUXLM_AUTO_UPDATE=0 cld glm       # 关闭启动检查
 MUXLM_UPDATE_DEBUG=1 cld glm      # 显示更新诊断
-cld update                        # 立即强制检查
+cld update                        # 立即更新模型列表
 ```
 
-### 使用自己的 Catalog 服务器
+## 程序更新
+
+更新当前已安装的 Codex、Claude Code 和 OpenCode：
+
+```bash
+cld update --tool
+```
+
+MuxLM 会按顺序更新 Codex、Claude Code 和 OpenCode，并沿用它们原来的安装方式，包括 npm、Homebrew 和官方安装程序。未安装的程序会自动跳过；其中一个失败时，其余程序仍会继续更新。
+
+更新 MuxLM，或一次执行全部更新：
+
+```bash
+cld update --self
+cld update --all
+```
+
+通过本文安装命令安装的 MuxLM 可以自动更新。若当前副本来自其它地方，程序会停止并提示沿用原来的安装方式，不会贸然覆盖文件。
+
+## 使用自己的 Catalog 服务器
 
 把 `catalog.json` 放在静态 HTTPS 地址，建议支持 `ETag` 或 `Last-Modified`，然后设置：
 

@@ -19,16 +19,19 @@ const helpText = appName + ` — 快速切换 Claude Code / Codex / OpenCode 的
 
 命令:
   <入口> list                 查看 provider / 模型别名
-  <入口> doctor               检查本地 catalog / 配置 / 底层 CLI
+  <入口> doctor               检查模型列表、配置和依赖程序
   <入口> config               查看和管理 provider / key
   <入口> add                  添加 provider 或具名 key
   <入口> set-key <别名>       增加一把具名 key
   <入口> remove <别名>        删除本地 provider 配置
-  <入口> update               立即检查程序并更新 catalog
-  <入口> version              显示程序与 catalog 版本
+  <入口> update               更新模型列表
+  <入口> update --tool        更新已检测到的 Codex / Claude Code / OpenCode
+  <入口> update --self        更新 MuxLM
+  <入口> update --all         全部更新
+  <入口> version              显示 MuxLM 和模型列表版本
 
 选项:
-  -m, --model <id>            覆盖 catalog 中的模型 id
+  -m, --model <id>            临时指定模型 id
       --intl                  使用海外端点
   -y, --yes                   跳过底层 CLI 安全确认（危险）
       --dry-run               仅预览，不启动底层 CLI
@@ -40,7 +43,7 @@ const helpText = appName + ` — 快速切换 Claude Code / Codex / OpenCode 的
   opc ds -m deepseek-v4-pro   OpenCode + 指定模型
   cld glm -- "fix the bug"    将 -- 后的参数原样传给 Claude Code
 
-裸别名始终跟随 catalog 的最新模型；版本别名在保留期间锁定具体模型。
+简短别名始终使用最新模型；版本别名始终对应固定模型。
 `
 
 func main() {
@@ -57,10 +60,7 @@ func main() {
 	}
 
 	if len(args) > 0 && args[0] == "update" {
-		if len(args) != 1 {
-			fail("update 不接受额外参数")
-		}
-		if err := runUpdate(); err != nil {
+		if err := runUpdateCommand(args[1:]); err != nil {
 			fail(err.Error())
 		}
 		return

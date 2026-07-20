@@ -81,6 +81,28 @@ func TestPlansShareDirectoryButKeepSeparateKeys(t *testing.T) {
 	}
 }
 
+func TestKimiCodingDefaultsToK3(t *testing.T) {
+	isolatedConfig(t)
+	idx := buildIndex()
+	for _, alias := range []string{"kimic", "k3"} {
+		resolved, ok := idx[alias]
+		if !ok || resolved.Prov.Alias != "kimic" || resolved.Model.ID != "k3" {
+			t.Fatalf("%s = %#v", alias, resolved)
+		}
+	}
+
+	previous := cloneCatalog(t, &embeddedCatalog)
+	previous.Revision = "2026-07-18.2"
+	for i := range previous.Providers {
+		if previous.Providers[i].Alias == "kimic" {
+			previous.Providers[i].Models = []Model{{ID: "kimi-for-coding", Latest: true}}
+		}
+	}
+	if err := validateCatalogEvolution(previous, &embeddedCatalog); err != nil {
+		t.Fatalf("existing users cannot update to K3 catalog: %v", err)
+	}
+}
+
 func TestLegacyDoubaoKeyPlanMigratesToCodingPlan(t *testing.T) {
 	isolatedConfig(t)
 	p := buildIndex()["doubao"].Prov
@@ -859,7 +881,7 @@ func TestStartupCatalogAndReleaseChecksStartInParallel(t *testing.T) {
 	}
 }
 
-func TestManualUpdateChecksReleaseWhenCatalogFails(t *testing.T) {
+func TestManualCatalogUpdateDoesNotCheckRelease(t *testing.T) {
 	isolatedConfig(t)
 	catalogServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		http.Error(w, "unavailable", http.StatusServiceUnavailable)
@@ -875,11 +897,213 @@ func TestManualUpdateChecksReleaseWhenCatalogFails(t *testing.T) {
 	t.Setenv("PROVIDERDECK_RELEASE_API_URL", releaseServer.URL)
 	t.Setenv("PROVIDERDECK_INSTALL_URL", releaseServer.URL+"/install.sh")
 
-	if err := runUpdate(); err == nil || !strings.Contains(err.Error(), "catalog 更新失败") {
+	if err := runUpdateCommand(nil); err == nil {
 		t.Fatalf("manual update did not report catalog failure: %v", err)
 	}
-	if got := releaseRequests.Load(); got != 1 {
-		t.Fatalf("manual update made %d release requests after catalog failure", got)
+	if got := releaseRequests.Load(); got != 0 {
+		t.Fatalf("catalog-only update made %d release requests", got)
+	}
+}
+
+func TestUpdateModesAndAllContinuesAfterFailure(t *testing.T) {
+	for _, tc := range []struct {
+		args []string
+		want updateMode
+	}{
+		{nil, updateCatalog},
+		{[]string{"--tool"}, updateTools},
+		{[]string{"--self"}, updateSelf},
+		{[]string{"--all"}, updateAll},
+	} {
+		got, err := parseUpdateMode(tc.args)
+		if err != nil || got != tc.want {
+			t.Fatalf("parseUpdateMode(%v) = %v, %v; want %v", tc.args, got, err, tc.want)
+		}
+	}
+	for _, args := range [][]string{{"--unknown"}, {"--tool", "--self"}} {
+		if _, err := parseUpdateMode(args); err == nil {
+			t.Fatalf("parseUpdateMode(%v) accepted invalid arguments", args)
+		}
+	}
+
+	var order []string
+	var err error
+	output := captureStdout(t, func() {
+		err = executeUpdate(updateAll, updateRunners{
+			catalog: func() error {
+				order = append(order, "catalog")
+				return errors.New("offline")
+			},
+			tools: func() error {
+				order = append(order, "tools")
+				return nil
+			},
+			self: func() error {
+				order = append(order, "self")
+				return nil
+			},
+		})
+	})
+	if err == nil || !strings.Contains(err.Error(), "模型列表") {
+		t.Fatalf("all-update error = %v", err)
+	}
+	if got := strings.Join(order, ","); got != "catalog,tools,self" {
+		t.Fatalf("all-update order = %q", got)
+	}
+	for _, want := range []string{"[1/3] 更新模型列表", "[2/3] 更新 Codex、Claude Code 和 OpenCode", "[3/3] 更新 MuxLM"} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("all-update output %q missing %q", output, want)
+		}
+	}
+	if strings.Contains(output, "==") {
+		t.Fatalf("all-update output uses internal-style headings: %q", output)
+	}
+}
+
+func TestToolUpdateUsesOfficialUpdaterCommands(t *testing.T) {
+	bin := t.TempDir()
+	logPath := filepath.Join(t.TempDir(), "updates.log")
+	for _, name := range []string{"codex", "claude", "opencode"} {
+		subcommand := "update"
+		if name == "opencode" {
+			subcommand = "upgrade"
+		}
+		script := fmt.Sprintf("#!/bin/sh\nif [ \"$1\" = \"--help\" ]; then printf '  %s\\n'; exit 0; fi\nprintf '%s:%%s\\n' \"$*\" >> \"$UPDATE_LOG\"\n", subcommand, name)
+		if err := os.WriteFile(filepath.Join(bin, name), []byte(script), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("PATH", bin)
+	t.Setenv("UPDATE_LOG", logPath)
+	var runErr error
+	output := captureStdout(t, func() { runErr = runToolUpdates() })
+	if runErr != nil {
+		t.Fatal(runErr)
+	}
+	b, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(b)
+	for _, want := range []string{"codex:update\n", "claude:update\n", "opencode:upgrade\n"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("tool update log %q missing %q", got, want)
+		}
+	}
+	for _, want := range []string{"正在更新 Codex", "正在更新 Claude Code", "正在更新 OpenCode"} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("tool update output %q missing %q", output, want)
+		}
+	}
+	for _, unwanted := range []string{"updater", "codex update", "AI 工具"} {
+		if strings.Contains(output, unwanted) {
+			t.Fatalf("tool update output %q contains %q", output, unwanted)
+		}
+	}
+}
+
+func TestToolUpdateContinuesAfterFailure(t *testing.T) {
+	bin := t.TempDir()
+	logPath := filepath.Join(t.TempDir(), "updates.log")
+	for _, item := range []struct {
+		name string
+		exit int
+	}{{"codex", 7}, {"claude", 0}, {"opencode", 0}} {
+		subcommand := "update"
+		if item.name == "opencode" {
+			subcommand = "upgrade"
+		}
+		script := fmt.Sprintf("#!/bin/sh\nif [ \"$1\" = \"--help\" ]; then printf '  %s\\n'; exit 0; fi\nprintf '%s\\n' >> \"$UPDATE_LOG\"\nexit %d\n", subcommand, item.name, item.exit)
+		if err := os.WriteFile(filepath.Join(bin, item.name), []byte(script), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("PATH", bin)
+	t.Setenv("UPDATE_LOG", logPath)
+	err := runToolUpdates()
+	if err == nil || !strings.Contains(err.Error(), "Codex") {
+		t.Fatalf("tool update error = %v", err)
+	}
+	b, readErr := os.ReadFile(logPath)
+	if readErr != nil || string(b) != "codex\nclaude\nopencode\n" {
+		t.Fatalf("tool update log = %q, %v", b, readErr)
+	}
+}
+
+func TestToolUpdateDoesNotLaunchToolWithoutOfficialUpdater(t *testing.T) {
+	bin := t.TempDir()
+	launched := filepath.Join(t.TempDir(), "launched")
+	script := "#!/bin/sh\nif [ \"$1\" = \"--help\" ]; then printf 'Usage: codex [PROMPT]\\n'; exit 0; fi\nprintf launched > \"$LAUNCHED\"\n"
+	if err := os.WriteFile(filepath.Join(bin, "codex"), []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin)
+	t.Setenv("LAUNCHED", launched)
+	err := runToolUpdates()
+	if err == nil || !strings.Contains(err.Error(), "Codex") {
+		t.Fatalf("missing updater error = %v", err)
+	}
+	if _, statErr := os.Stat(launched); !os.IsNotExist(statErr) {
+		t.Fatalf("tool without updater was launched: %v", statErr)
+	}
+}
+
+func TestSelfUpdateRunsInstallerForManagedBinary(t *testing.T) {
+	isolatedConfig(t)
+	installDir := t.TempDir()
+	executable := filepath.Join(installDir, binaryName)
+	if err := os.WriteFile(executable, []byte("managed binary"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(installDir, ".muxlm-install.sha256"), []byte(strings.Repeat("a", 64)+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	capture := filepath.Join(t.TempDir(), "self-update")
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/release":
+			fmt.Fprint(w, `{"tag_name":"v9.0.0"}`)
+		case "/install.sh":
+			_, _ = io.WriteString(w, "#!/usr/bin/env bash\nprintf '%s|%s' \"$BINDIR\" \"$FORCE\" > \"$SELF_UPDATE_CAPTURE\"\n")
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	t.Setenv("MUXLM_RELEASE_API_URL", srv.URL+"/release")
+	t.Setenv("MUXLM_INSTALL_URL", srv.URL+"/install.sh")
+	t.Setenv("SELF_UPDATE_CAPTURE", capture)
+	t.Setenv("BINDIR", "/should/not/be/used")
+	t.Setenv("FORCE", "1")
+	var selfErr error
+	output := captureStdout(t, func() { selfErr = runSelfUpdateForExecutable(executable) })
+	if selfErr != nil {
+		t.Fatal(selfErr)
+	}
+	b, err := os.ReadFile(capture)
+	realInstallDir, evalErr := filepath.EvalSymlinks(installDir)
+	if err != nil || evalErr != nil || string(b) != realInstallDir+"|0" {
+		t.Fatalf("self updater env = %q, %v", b, err)
+	}
+	if !strings.Contains(output, "正在更新 MuxLM") || !strings.Contains(output, "MuxLM 已更新至") || strings.Contains(output, "installer") {
+		t.Fatalf("self update output = %q", output)
+	}
+}
+
+func TestSelfUpdateRejectsUnmanagedBinary(t *testing.T) {
+	isolatedConfig(t)
+	executable := filepath.Join(t.TempDir(), binaryName)
+	if err := os.WriteFile(executable, []byte("unmanaged"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprint(w, `{"tag_name":"v9.0.0"}`)
+	}))
+	defer srv.Close()
+	t.Setenv("MUXLM_RELEASE_API_URL", srv.URL)
+	t.Setenv("MUXLM_INSTALL_URL", srv.URL+"/install.sh")
+	if err := runSelfUpdateForExecutable(executable); err == nil || !strings.Contains(err.Error(), "当前安装方式不支持自动更新") {
+		t.Fatalf("unmanaged self update error = %v", err)
 	}
 }
 

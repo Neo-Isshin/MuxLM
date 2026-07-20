@@ -55,7 +55,10 @@ cdx glm --dry-run          # Preview configuration without launching
 <entry> add                  Add a provider key or custom provider
 <entry> set-key <alias>      Add another named key
 <entry> remove <alias>       Remove local provider configuration
-<entry> update               Update the catalog and check app version
+<entry> update               Update the model list
+<entry> update --tool        Update detected Codex, Claude Code, and OpenCode CLIs
+<entry> update --self        Update MuxLM
+<entry> update --all         Update everything
 <entry> doctor               Run local, read-only diagnostics
 <entry> version              Show app and catalog versions
 <entry> --help               Show full help
@@ -67,15 +70,34 @@ MuxLM checks the catalog on every normal startup. A valid update is stored atomi
 
 Updates are not limited to additions: a catalog revision may add providers/models, retire and remove old models or aliases, and move `latest`. Permanent tombstones prevent retired version aliases from being reused. Strict validation also blocks rollback, modified revisions, and silent changes to provider trust fields.
 
-MuxLM only reports a newer app version; it never silently replaces the binary.
+MuxLM only reports a newer app version during startup; it never silently replaces the binary.
 
 ```bash
 MUXLM_AUTO_UPDATE=0 cld glm       # Disable startup checks
 MUXLM_UPDATE_DEBUG=1 cld glm      # Show update diagnostics
-cld update                        # Force a check now
+cld update                        # Update the model list now
 ```
 
-### Host your own catalog
+## Program updates
+
+Update the AI CLIs that are currently available in `PATH`:
+
+```bash
+cld update --tool
+```
+
+MuxLM updates Codex, Claude Code, and OpenCode in order while preserving how each one was installed, including npm, Homebrew, and official installers. Programs that are not installed are skipped, and one failure does not prevent the remaining updates from running.
+
+Update MuxLM, or update everything in one pass:
+
+```bash
+cld update --self
+cld update --all
+```
+
+MuxLM installations created by the command in this README can update themselves. If the current copy came from somewhere else, MuxLM stops and asks you to use the original installation method instead of overwriting an unknown file.
+
+## Host your own catalog
 
 Serve `catalog.json` from a static HTTPS URL, preferably with `ETag` or `Last-Modified`, then set:
 
