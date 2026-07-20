@@ -25,6 +25,31 @@ curl -fsSL https://raw.githubusercontent.com/Neo-Isshin/MuxLM/main/install.sh | 
 
 The installer verifies the release checksum, installs `muxlm` to `~/.local/bin`, and creates the `cdx`, `cld`, and `opc` commands. Add that directory to `PATH` if the installer asks you to.
 
+## First-time setup
+
+First, check that MuxLM can find the AI CLI you plan to use:
+
+```bash
+cld doctor
+```
+
+You only need the tools you actually use. A `not found` warning for an unused `codex`, `claude`, or `opencode` installation does not affect the other entry points. Next, refresh the model list and see the available aliases:
+
+```bash
+cld update
+cld list
+```
+
+Then choose a provider and launch. On first use, MuxLM asks for the provider's API key without showing it on screen, validates it, and stores it securely:
+
+```bash
+cld k3                     # Claude Code + Kimi K3
+cdx glm                    # Codex + latest GLM
+opc ds                     # OpenCode + latest DeepSeek
+```
+
+The shared management commands—such as `list`, `doctor`, `config`, and `update`—work through any of `cdx`, `cld`, or `opc`.
+
 ## Quick start
 
 Choose an entry command and a provider alias:
@@ -34,8 +59,6 @@ cld glm                    # Claude Code + latest GLM
 cdx m --intl               # Codex + MiniMax international route
 opc ds                     # OpenCode + latest DeepSeek
 ```
-
-On first use, MuxLM asks for the selected provider's API key with hidden input, validates it, and stores it securely for later use.
 
 The most useful options are:
 
@@ -78,21 +101,29 @@ MUXLM_UPDATE_DEBUG=1 cld glm      # Show update diagnostics
 cld update                        # Update the model list now
 ```
 
-## Program updates
+## Update all three AI tools in one command
 
-Update the AI CLIs that are currently available in `PATH`:
+You do not need to look up three separate upgrade commands. One command updates every detected Codex, Claude Code, and OpenCode installation:
 
 ```bash
 cld update --tool
 ```
 
-MuxLM updates Codex, Claude Code, and OpenCode in order while preserving how each one was installed, including npm, Homebrew, and official installers. Programs that are not installed are skipped, and one failure does not prevent the remaining updates from running.
+`cdx update --tool` and `opc update --tool` do the same thing.
 
-Update MuxLM, or update everything in one pass:
+MuxLM finds the three tools in `PATH` and hands each one to its official updater. The tool recognizes whether it came from npm, Homebrew, or an official installer and stays on that installation channel. Missing tools are skipped, and one failed update does not stop the others.
+
+If an installed version is too old to support a safe automatic update, MuxLM asks you to upgrade it once through its original installation method instead of accidentally opening its interactive interface.
+
+## Update the model list and MuxLM
+
+Each update form has one clear purpose:
 
 ```bash
-cld update --self
-cld update --all
+cld update           # Update only the model list
+cld update --tool    # Update the three installed AI tools
+cld update --self    # Update only MuxLM
+cld update --all     # Run all of the above in order
 ```
 
 MuxLM installations created by the command in this README can update themselves. If the current copy came from somewhere else, MuxLM stops and asks you to use the original installation method instead of overwriting an unknown file.

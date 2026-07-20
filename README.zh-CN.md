@@ -25,6 +25,31 @@ curl -fsSL https://raw.githubusercontent.com/Neo-Isshin/MuxLM/main/install.sh | 
 
 安装器会校验 release checksum，把 `muxlm` 安装到 `~/.local/bin`，并创建 `cdx`、`cld`、`opc` 三个命令。如果提示该目录不在 `PATH`，按屏幕给出的命令添加即可。
 
+## 首次使用
+
+先确认 MuxLM 能找到你准备使用的 AI 工具：
+
+```bash
+cld doctor
+```
+
+`codex`、`claude` 或 `opencode` 中只要安装了你需要的那个即可；没有使用的工具显示 `not found` 不影响其它入口。接着更新模型列表并查看可用别名：
+
+```bash
+cld update
+cld list
+```
+
+然后选择一个 provider 启动。第一次使用时，MuxLM 会提示你输入 API key，输入内容不会显示在屏幕上；验证通过后会安全保存：
+
+```bash
+cld k3                     # Claude Code + Kimi K3
+cdx glm                    # Codex + 最新 GLM
+opc ds                     # OpenCode + 最新 DeepSeek
+```
+
+`cdx`、`cld`、`opc` 都能执行 `list`、`doctor`、`config` 和 `update` 等管理命令，任选一个入口即可。
+
 ## 快速开始
 
 选择一个入口命令，再加 provider 别名：
@@ -34,8 +59,6 @@ cld glm                    # Claude Code + 最新 GLM
 cdx m --intl               # Codex + MiniMax 海外线路
 opc ds                     # OpenCode + 最新 DeepSeek
 ```
-
-首次使用某个 provider 时，MuxLM 会隐藏输入 API key，验证成功后安全保存，以后可直接启动。
 
 最常用的三个选项：
 
@@ -78,21 +101,29 @@ MUXLM_UPDATE_DEBUG=1 cld glm      # 显示更新诊断
 cld update                        # 立即更新模型列表
 ```
 
-## 程序更新
+## 一键更新三个 AI 工具
 
-更新当前已安装的 Codex、Claude Code 和 OpenCode：
+不需要分别查找三个工具的升级命令，一条命令即可更新电脑里已检测到的 Codex、Claude Code 和 OpenCode：
 
 ```bash
 cld update --tool
 ```
 
-MuxLM 会按顺序更新 Codex、Claude Code 和 OpenCode，并沿用它们原来的安装方式，包括 npm、Homebrew 和官方安装程序。未安装的程序会自动跳过；其中一个失败时，其余程序仍会继续更新。
+这里也可以换成 `cdx update --tool` 或 `opc update --tool`，效果相同。
 
-更新 MuxLM，或一次执行全部更新：
+MuxLM 会在 `PATH` 中找到这三个工具，再交给各自的官方更新命令处理。工具会识别自己来自 npm、Homebrew 还是官方安装程序，并沿用原来的安装渠道，不会把你的安装方式换掉。未安装的工具会自动跳过；其中一个更新失败时，其余工具仍会继续。
+
+如果某个工具版本太旧、还不支持安全的自动更新，MuxLM 会提示你先按原来的安装方式升级一次，而不会误启动它的交互界面。
+
+## 更新模型列表和 MuxLM
+
+这四种用法各有明确含义：
 
 ```bash
-cld update --self
-cld update --all
+cld update           # 只更新模型列表
+cld update --tool    # 更新已安装的三个 AI 工具
+cld update --self    # 只更新 MuxLM
+cld update --all     # 依次完成以上全部更新
 ```
 
 通过本文安装命令安装的 MuxLM 可以自动更新。若当前副本来自其它地方，程序会停止并提示沿用原来的安装方式，不会贸然覆盖文件。
