@@ -45,32 +45,8 @@ curl -fsSL https://raw.githubusercontent.com/Neo-Isshin/MuxLM/main/install.sh | 
 
 ## 首次使用
 
-先确认 MuxLM 能找到你准备使用的 AI 工具：
-
-```bash
-cld doctor
-```
-
-`codex`、`claude` 或 `opencode` 中只要安装了你需要的那个即可；没有使用的工具显示 `not found` 不影响其它入口。接着更新模型列表并查看可用别名：
-
-```bash
-cld update
-cld list
-```
-
-然后选择一个 provider 启动。第一次使用时，MuxLM 会提示你输入 API key，输入内容不会显示在屏幕上；验证通过后会安全保存：
-
-```bash
-cld k                      # Claude Code + 按量计费 Kimi 最新模型
-cld k27                    # Claude Code + 按量计费 Kimi K2.7 Code
-cld kc                     # Claude Code + Kimi Coding Plan
-cdx glm                    # Codex + 最新 GLM
-opc ds                     # OpenCode + 最新 DeepSeek
-```
-
-Kimi 的按量计费 API 使用 `k`，并可通过 `k27`、`k26` 固定模型；`kc` 使用 Coding Plan，固定调用其唯一 Model ID `kimi-for-coding`。两种产品的 API key 不通用。旧的 `kimi`、`kimic`、`kimi26` 和 `k3` 已退役，避免把原来指向 Coding Plan 的命令静默改成按量计费。
-
-使用 `cld k27` 时，Kimi K2.7 要求 Claude Code 开启 Thinking；进入 Claude Code 后按 `Tab`，确认界面显示 `Thinking on`。MuxLM 会自动配置 Kimi 官方的 Anthropic 端点、256K 压缩窗口以及后台任务模型。
+无任何前置操作，直接选择你需要的 provider 启动。如`opc ds`——用deepseek最新模型启动opencode。
+第一次使用时，MuxLM 会提示你输入 API key，输入内容不会显示在屏幕上；验证通过后会安全保存。provider有key后，再次使用就无需输入key，provider的任意模型均使用同一个key。
 
 `cdx`、`cld`、`opc` 都能执行 `list`、`doctor`、`config` 和 `update` 等管理命令，任选一个入口即可。
 
