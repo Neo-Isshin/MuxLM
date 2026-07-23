@@ -77,13 +77,13 @@ if env PATH="$EMPTY_PATH" HOME="$TEST_ROOT/empty-home" /bin/bash "$INSTALLER" >"
 	echo "installer ignored missing dependencies" >&2
 	exit 1
 fi
-grep -q '缺少安装依赖' "$EMPTY_PATH/missing.log"
+grep -q '还缺这些工具' "$EMPTY_PATH/missing.log"
 grep -q -- '--install-deps' "$EMPTY_PATH/missing.log"
 if env PATH="$EMPTY_PATH" HOME="$TEST_ROOT/empty-home" /bin/bash "$INSTALLER" --install-deps >"$EMPTY_PATH/noninteractive.log" 2>&1; then
 	echo "installer changed dependencies without interactive confirmation" >&2
 	exit 1
 fi
-grep -q '无法交互确认；未修改系统软件包' "$EMPTY_PATH/noninteractive.log"
+grep -q '这里无法确认，已停止；系统没有改动' "$EMPTY_PATH/noninteractive.log"
 
 REPO=ci/MuxLM
 TAG=v0.0.0-smoke
@@ -160,7 +160,7 @@ if run_installer "$INSTALL_DIR" "$TEST_ROOT/bad-checksum.log"; then
 	echo "installer accepted an asset with a bad checksum" >&2
 	exit 1
 fi
-grep -q 'SHA-256 校验失败' "$TEST_ROOT/bad-checksum.log"
+grep -q '下载文件检查失败' "$TEST_ROOT/bad-checksum.log"
 assert_same_file "$SOURCE_ASSET" "$INSTALL_DIR/muxlm"
 assert_no_installer_temps "$INSTALL_DIR"
 cp "$SOURCE_ASSET" "$RELEASE_DIR/$ASSET"
@@ -170,7 +170,7 @@ rm "$RELEASE_DIR/$ASSET"
 LEGACY_DIR="$TEST_ROOT/legacy-bin"
 run_installer "$LEGACY_DIR" "$TEST_ROOT/legacy.log"
 assert_same_file "$SOURCE_LEGACY_ASSET" "$LEGACY_DIR/muxlm"
-grep -q '回退到兼容资产' "$TEST_ROOT/legacy.log"
+grep -q '主下载文件暂不可用，改用' "$TEST_ROOT/legacy.log"
 assert_links "$LEGACY_DIR"
 cp "$SOURCE_ASSET" "$RELEASE_DIR/$ASSET"
 

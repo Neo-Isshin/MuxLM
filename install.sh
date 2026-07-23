@@ -13,7 +13,7 @@ usage() {
     '  curl -fsSL https://raw.githubusercontent.com/Neo-Isshin/MuxLM/main/install.sh | bash -s -- --install-deps' \
     '' \
     '选项:' \
-    '  --install-deps  检测到缺失依赖时，显示命令并在确认后调用系统包管理器' \
+    '  --install-deps  缺少工具时，确认后帮你安装' \
     '  -h, --help      显示帮助'
 }
 
@@ -94,7 +94,7 @@ run_as_root() {
   elif command -v sudo >/dev/null 2>&1; then
     sudo "$@"
   else
-    echo "✗ 安装系统依赖需要 root 权限，但没有找到 sudo" >&2
+    echo "✗ 需要管理员权限，但没有找到 sudo" >&2
     return 1
   fi
 }
@@ -137,47 +137,47 @@ install_dependencies() {
 collect_missing_dependencies
 if [ "${#MISSING_COMMANDS[@]}" -gt 0 ]; then
   MANAGER=$(dependency_manager)
-  echo "✗ 缺少安装依赖: ${MISSING_COMMANDS[*]}" >&2
+  echo "✗ 还缺这些工具: ${MISSING_COMMANDS[*]}" >&2
   if [ -n "$MANAGER" ]; then
-    echo "  可执行:" >&2
+    echo "  请先运行:" >&2
     echo "    $(dependency_install_hint "$MANAGER")" >&2
   else
-    echo "  请先使用系统包管理器安装 bash、curl、CA 证书、校验工具和基础 Unix 命令。" >&2
+    echo "  请先安装这些工具，再重新运行安装器。" >&2
   fi
   if [ "$INSTALL_DEPS" != "1" ]; then
-    echo "  也可以重新运行安装器并添加 --install-deps；执行系统安装命令前仍会要求确认。" >&2
+    echo "  或加上 --install-deps，让安装器在你确认后补齐。" >&2
     exit 1
   fi
   if [ -z "$MANAGER" ]; then
-    echo "✗ 无法识别系统包管理器，不能自动补齐依赖" >&2
+    echo "✗ 没找到可用的安装方式，请手动安装" >&2
     exit 1
   fi
-  echo "  MuxLM 准备执行上面的系统安装命令。" >&2
+  echo "  准备安装缺少的工具。" >&2
   if ! { printf '  是否继续？[y/N] ' >/dev/tty && IFS= read -r REPLY </dev/tty; } 2>/dev/null; then
-    echo "✗ 当前环境无法交互确认；未修改系统软件包" >&2
+    echo "✗ 这里无法确认，已停止；系统没有改动" >&2
     exit 1
   fi
   case "$REPLY" in
     y|Y|yes|YES) ;;
-    *) echo "已取消；未修改系统软件包" >&2; exit 1 ;;
+    *) echo "已取消，系统没有改动" >&2; exit 1 ;;
   esac
   if ! install_dependencies "$MANAGER"; then
-    echo "✗ 系统依赖安装失败；请手动执行上面显示的命令" >&2
+    echo "✗ 没有安装成功，请手动运行上面的命令" >&2
     exit 1
   fi
   collect_missing_dependencies
   if [ "${#MISSING_COMMANDS[@]}" -gt 0 ]; then
-    echo "✗ 安装后仍缺少依赖: ${MISSING_COMMANDS[*]}" >&2
+    echo "✗ 安装后仍缺少: ${MISSING_COMMANDS[*]}" >&2
     exit 1
   fi
-  echo "✓ 安装依赖已准备好"
+  echo "✓ 需要的工具已就绪"
 fi
 
 GITHUB="${GITHUB:-https://github.com}"
 GITHUB_API="${GITHUB_API:-https://api.github.com}"
 REPO="${REPO:-Neo-Isshin/MuxLM}"
 if [ -z "${BINDIR:-}" ] && [ -z "${HOME:-}" ]; then
-  echo "✗ HOME 未设置；请设置 HOME 或通过 BINDIR 指定安装目录" >&2
+  echo "✗ 找不到默认安装位置；请设置 HOME 或 BINDIR" >&2
   exit 1
 fi
 BINDIR="${BINDIR:-$HOME/.local/bin}"
@@ -188,13 +188,13 @@ case "$(uname -s)/$(uname -m)" in
   Darwin/x86_64) GOOS=darwin; GOARCH=amd64 ;;
   Linux/arm64|Linux/aarch64) GOOS=linux; GOARCH=arm64 ;;
   Linux/x86_64)  GOOS=linux;  GOARCH=amd64 ;;
-  *) echo "✗ 不支持: $(uname -s)/$(uname -m)" >&2; exit 1 ;;
+  *) echo "✗ 暂不支持这台机器: $(uname -s)/$(uname -m)" >&2; exit 1 ;;
 esac
 
 # 先解析 latest tag，确保二进制与 SHA256SUMS 来自同一个 release。
 RELEASE_API="$GITHUB_API/repos/$REPO/releases/latest"
 TAG=$(curl -fsSL -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' "$RELEASE_API" | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)
-[ -n "$TAG" ] || { echo "✗ 解析 latest tag 失败: $RELEASE_API" >&2; exit 1; }
+[ -n "$TAG" ] || { echo "✗ 暂时找不到最新版本，请稍后重试" >&2; exit 1; }
 
 ASSET="muxlm-$GOOS-$GOARCH"
 LEGACY_ASSET="providerdeck-$GOOS-$GOARCH"
@@ -208,7 +208,7 @@ if command -v shasum >/dev/null 2>&1; then
 elif command -v sha256sum >/dev/null 2>&1; then
   sha256_file() { sha256sum "$1" | awk '{print $1}'; }
 else
-  echo "✗ 系统缺少 shasum/sha256sum，无法校验下载文件" >&2
+  echo "✗ 找不到 shasum 或 sha256sum，无法检查下载文件" >&2
   exit 1
 fi
 
@@ -219,16 +219,8 @@ PROVIDERDECK_MARKER="$BINDIR/.providerdeck-install.sha256"
 
 validate_marker_target() {
 	local marker="$1"
-	if [ -L "$marker" ]; then
-		echo "✗ 安装 marker 是符号链接，拒绝使用: $marker" >&2
-		exit 1
-	fi
-	if [ -d "$marker" ]; then
-		echo "✗ 安装 marker 是目录，拒绝使用: $marker" >&2
-		exit 1
-	fi
-	if [ -e "$marker" ] && [ ! -f "$marker" ]; then
-		echo "✗ 安装 marker 不是普通文件，拒绝使用: $marker" >&2
+	if [ -L "$marker" ] || [ -d "$marker" ] || { [ -e "$marker" ] && [ ! -f "$marker" ]; }; then
+		echo "✗ 安装记录位置不安全，已停止: $marker" >&2
 		exit 1
 	fi
 }
@@ -250,22 +242,23 @@ authorize_binary_target() {
 	validate_marker_target "$MARKER"
 	if [ -L "$BIN" ]; then
     if [ "$FORCE" != "1" ]; then
-      echo "✗ $BIN 是符号链接（未覆盖）；确认后可使用 FORCE=1" >&2
+      echo "✗ $BIN 已被其它链接占用，未改动" >&2
+      echo "  确认要替换时，可使用 FORCE=1" >&2
       exit 1
     fi
     return
   fi
   if [ -d "$BIN" ]; then
-    echo "✗ $BIN 是目录（始终不会覆盖）" >&2
+    echo "✗ $BIN 已是文件夹，未改动" >&2
     exit 1
   fi
   if [ -e "$BIN" ] && [ ! -f "$BIN" ]; then
-    echo "✗ $BIN 不是普通文件（始终不会覆盖）" >&2
+    echo "✗ $BIN 不是可替换的文件，未改动" >&2
     exit 1
   fi
 	if [ -f "$BIN" ] && ! managed_binary "$BIN" "$MARKER" && [ "$FORCE" != "1" ]; then
-		echo "✗ $BIN 不是此安装器管理的文件，或内容已变化（未覆盖）" >&2
-    echo "  请先移动该文件，或确认后使用 FORCE=1 重新安装" >&2
+		echo "✗ $BIN 不是由 MuxLM 安装的，或内容已经变化，未改动" >&2
+    echo "  请先移动它；确认要替换时，也可使用 FORCE=1" >&2
     exit 1
   fi
 }
@@ -285,23 +278,23 @@ validate_entry_targets() {
 		muxlm|providerdeck|ez-switch) continue ;;
       esac
       if [ "$FORCE" != "1" ]; then
-        echo "✗ 命令冲突: $DEST 是无关符号链接（未覆盖）" >&2
-        echo "  请先移动该链接，或确认后使用 FORCE=1 重新安装" >&2
+        echo "✗ $DEST 已被其它命令占用，未改动" >&2
+        echo "  请先移动它；确认要替换时，也可使用 FORCE=1" >&2
         exit 1
       fi
       continue
     fi
     if [ -d "$DEST" ]; then
-      echo "✗ 命令冲突: $DEST 是目录（始终不会覆盖）" >&2
+      echo "✗ $DEST 已是文件夹，未改动" >&2
       exit 1
     fi
     if [ -e "$DEST" ] && [ ! -f "$DEST" ]; then
-      echo "✗ 命令冲突: $DEST 不是普通文件（始终不会覆盖）" >&2
+      echo "✗ $DEST 不是可替换的文件，未改动" >&2
       exit 1
     fi
     if [ -f "$DEST" ] && [ "$FORCE" != "1" ]; then
-      echo "✗ 命令冲突: $DEST 已存在（未覆盖）" >&2
-      echo "  请先移动该文件，或确认后使用 FORCE=1 重新安装" >&2
+      echo "✗ $DEST 已存在，未改动" >&2
+      echo "  请先移动它；确认要替换时，也可使用 FORCE=1" >&2
       exit 1
     fi
   done
@@ -325,18 +318,18 @@ prepare_providerdeck_compat() {
 		case "${target##*/}" in
 			muxlm|providerdeck|ez-switch) rm -f "$PROVIDERDECK_BIN" ;;
 			*)
-				echo "  ⚠ 保留无关的 $PROVIDERDECK_BIN；未创建 ProviderDeck 兼容链接" >&2
+				echo "  ⚠ $PROVIDERDECK_BIN 已存在，已保留；未创建 ProviderDeck 命令" >&2
 				return
 				;;
 		esac
 	elif [ -d "$PROVIDERDECK_BIN" ] || { [ -e "$PROVIDERDECK_BIN" ] && [ ! -f "$PROVIDERDECK_BIN" ]; }; then
-		echo "  ⚠ 保留特殊路径 $PROVIDERDECK_BIN；未创建 ProviderDeck 兼容链接" >&2
+		echo "  ⚠ $PROVIDERDECK_BIN 已存在，已保留；未创建 ProviderDeck 命令" >&2
 		return
 	elif [ -f "$PROVIDERDECK_BIN" ]; then
 		if managed_binary "$PROVIDERDECK_BIN" "$PROVIDERDECK_MARKER"; then
 			rm -f "$PROVIDERDECK_BIN" "$PROVIDERDECK_MARKER"
 		else
-			echo "  ⚠ 保留未受管的 $PROVIDERDECK_BIN；未创建 ProviderDeck 兼容链接" >&2
+			echo "  ⚠ $PROVIDERDECK_BIN 已存在，已保留；未创建 ProviderDeck 命令" >&2
 			return
 		fi
 	fi
@@ -353,17 +346,17 @@ prepare_ez_switch_compat() {
 			muxlm|providerdeck|ez-switch) rm -f "$dest" ;;
 			*)
 				if [ "$FORCE" = "1" ]; then rm -f "$dest"; else
-					echo "  ⚠ 保留无关的 $dest；未创建 ez-switch 兼容链接" >&2
+					echo "  ⚠ $dest 已存在，已保留；未创建 ez-switch 命令" >&2
 					return
 				fi
 				;;
 		esac
 	elif [ -d "$dest" ] || { [ -e "$dest" ] && [ ! -f "$dest" ]; }; then
-		echo "  ⚠ 保留特殊路径 $dest；未创建 ez-switch 兼容链接" >&2
+		echo "  ⚠ $dest 已存在，已保留；未创建 ez-switch 命令" >&2
 		return
 	elif [ -f "$dest" ]; then
 		if [ "$FORCE" = "1" ]; then rm -f "$dest"; else
-			echo "  ⚠ 保留现有 $dest；未创建 ez-switch 兼容链接" >&2
+			echo "  ⚠ $dest 已存在，已保留；未创建 ez-switch 命令" >&2
 			return
 		fi
 	fi
@@ -384,14 +377,14 @@ trap cleanup EXIT
 if ! curl -fsSL "$URL" -o "$TMP_BIN"; then
 	ASSET="$LEGACY_ASSET"
 	URL="$GITHUB/$REPO/releases/download/$TAG/$ASSET"
-	echo "  ↳ canonical asset 暂不可用，回退到兼容资产 $ASSET" >&2
+	echo "  ↳ 主下载文件暂不可用，改用 $ASSET" >&2
 	curl -fsSL "$URL" -o "$TMP_BIN"
 fi
 curl -fsSL "$SUMS_URL" -o "$TMP_SUMS"
 EXPECTED=$(awk -v asset="$ASSET" '$2 == asset { print $1; exit }' "$TMP_SUMS")
-[ -n "$EXPECTED" ] || { echo "✗ SHA256SUMS 中没有 $ASSET" >&2; exit 1; }
+[ -n "$EXPECTED" ] || { echo "✗ 下载清单中找不到 $ASSET" >&2; exit 1; }
 ACTUAL=$(sha256_file "$TMP_BIN")
-[ "$ACTUAL" = "$EXPECTED" ] || { echo "✗ SHA-256 校验失败" >&2; exit 1; }
+[ "$ACTUAL" = "$EXPECTED" ] || { echo "✗ 下载文件检查失败" >&2; exit 1; }
 
 chmod 755 "$TMP_BIN"
 printf '%s\n' "$ACTUAL" > "$TMP_MARKER"
@@ -422,13 +415,13 @@ rm -f "$TMP_MARKER"
 rm -f "$TMP_SUMS"
 trap - EXIT
 
-echo "✓ SHA-256 校验通过"
+echo "✓ 下载文件检查通过"
 echo "✓ 已安装到 ${BINDIR}（muxlm / cdx / cld / opc）"
 case ":$PATH:" in
   *":$BINDIR:"*) ;;
   *)
     printf -v QUOTED_BINDIR '%q' "$BINDIR"
-    echo "  ⚠ $BINDIR 不在 PATH；当前 shell 可运行："
+    echo "  ⚠ 当前终端还找不到 cld 等命令，请先运行："
     echo "    export PATH=$QUOTED_BINDIR:\$PATH"
     ;;
 esac
