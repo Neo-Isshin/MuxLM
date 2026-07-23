@@ -103,6 +103,7 @@ func TestProviderDeckAndCXEnvironmentFallback(t *testing.T) {
 func TestConfigDirReusesLegacyUntilNewDirectoryExists(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", "")
 	t.Setenv("MUXLM_CONFIG_DIR", "")
 	t.Setenv("PROVIDERDECK_CONFIG_DIR", "")
 	t.Setenv("CX_CONFIG_DIR", "")
@@ -161,6 +162,7 @@ func TestMissingHomeNeverFallsBackToRelativeConfig(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.Chdir(oldWork) })
 	t.Setenv("HOME", "")
+	t.Setenv("XDG_CONFIG_HOME", "")
 	t.Setenv("MUXLM_CONFIG_DIR", "")
 	t.Setenv("PROVIDERDECK_CONFIG_DIR", "")
 	t.Setenv("CX_CONFIG_DIR", "")
@@ -196,6 +198,7 @@ func TestMissingHomeNeverFallsBackToRelativeConfig(t *testing.T) {
 func TestDualRootProviderKeysAndFileSecretsMigrateOnWrite(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", "")
 	t.Setenv("MUXLM_CONFIG_DIR", "")
 	t.Setenv("PROVIDERDECK_CONFIG_DIR", "")
 	t.Setenv("CX_CONFIG_DIR", "")
@@ -296,6 +299,7 @@ func TestDualRootProviderKeysAndFileSecretsMigrateOnWrite(t *testing.T) {
 func TestSecretSetDoesNotShadowOversizedLegacyStore(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", "")
 	t.Setenv("MUXLM_CONFIG_DIR", "")
 	t.Setenv("PROVIDERDECK_CONFIG_DIR", "")
 	t.Setenv("CX_CONFIG_DIR", "")

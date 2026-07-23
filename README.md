@@ -25,6 +25,79 @@ curl -fsSL https://raw.githubusercontent.com/Neo-Isshin/MuxLM/main/install.sh | 
 
 The installer verifies the release checksum, installs `muxlm` to `~/.local/bin`, and creates the `cdx`, `cld`, and `opc` commands. Add that directory to `PATH` if the installer asks you to.
 
+## Linux guide
+
+### Supported systems
+
+MuxLM ships static Linux binaries for AMD64 (`x86_64`) and ARM64 (`aarch64`/`arm64`), with Debian, Ubuntu, and Fedora as the primary targets. Other mainstream distributions such as Arch will usually work as well. Alpine is best-effort because Codex, Claude Code, OpenCode, and their Node.js dependencies may not fully support musl.
+
+The target machine does not need Go or Git. Installation with the command above and self-update require:
+
+- `bash`
+- `curl`
+- `sha256sum` or `shasum`
+
+The `coreutils` package provides `sha256sum` on Debian/Ubuntu and Fedora. If a dependency is missing, install `bash`, `curl`, and `coreutils` with the system package manager, then run the installer again.
+
+### Add the user command directory to PATH
+
+The default installation directory is `~/.local/bin`. If installation succeeds but the shell reports `cld: command not found`, run:
+
+```bash
+export PATH="$HOME/.local/bin:$PATH"
+cld doctor
+```
+
+Bash and Zsh users can add the same `export` line to `~/.bashrc` or `~/.zshrc`. Fish users can run `fish_add_path ~/.local/bin`. Open a new terminal and verify the result with:
+
+```bash
+command -v cdx cld opc
+```
+
+On Linux, `cld doctor` reports installation dependencies, the selected secret backend, the user command directory, and whether the three AI tools are visible in `PATH`. It only examines local paths and configuration metadata: it does not read API keys, contact a secret service, or make network requests.
+
+### Desktop Linux and headless servers
+
+In a desktop session, MuxLM selects Secret Service when `secret-tool` and a session D-Bus are available. The package that provides `secret-tool` is `libsecret-tools` on Debian/Ubuntu and `libsecret` on Fedora. A Secret Service provider such as an available, unlocked GNOME Keyring or KWallet is also required in the login session.
+
+VPS, NAS, and other headless Linux systems usually do not have a session D-Bus. Select the local file backend explicitly before using MuxLM:
+
+```bash
+export MUXLM_SECRET_BACKEND=file
+cld doctor
+```
+
+Add that `export` line to the login shell configuration if it should persist. The file backend stores keys as plaintext in a private file inside the MuxLM configuration directory and enforces mode `0600`. Do not sync, share, or commit that directory.
+
+The configuration directory is selected in this order:
+
+1. `MUXLM_CONFIG_DIR`
+2. `PROVIDERDECK_CONFIG_DIR`
+3. `CX_CONFIG_DIR`
+4. `$XDG_CONFIG_HOME/muxlm` on Linux
+5. `~/.config/muxlm`
+
+Existing `~/.config/muxlm`, ProviderDeck, and ez-switch/cx configurations remain readable through the compatibility rules; no manual migration is required.
+
+### Tool-update boundaries on Linux
+
+```bash
+cld update --tool
+```
+
+This command finds existing Codex, Claude Code, and OpenCode installations in `PATH`, then invokes their public `update`/`upgrade` commands. Installation-source detection and the upgrade itself belong to the underlying tool. MuxLM does not run `apt`, `dnf`, `pacman`, an AUR helper, or Nix, and it does not switch a tool to a different installation channel.
+
+A tool installed from a distribution package, a read-only system directory, or an administrator-managed deployment may refuse to update itself. MuxLM will still continue with the other tools; update the failed tool with its original package manager or ask the administrator. Likewise, `cld update --self` only updates a MuxLM binary managed by this README's installer. It does not overwrite a system package or manually placed binary.
+
+### Linux troubleshooting
+
+- `cld` is not found: add `~/.local/bin` to `PATH`, then open a new terminal.
+- `doctor` cannot find `codex`, `claude`, or `opencode`: install the underlying CLI you plan to use and ensure its command is in `PATH`. Unused tools may be ignored.
+- Secret Service cannot save a key: on a desktop, check `secret-tool`, the session D-Bus, and the unlocked keyring; on a headless server, set `MUXLM_SECRET_BACKEND=file`.
+- One tool fails during `update --tool`: upgrade it through its original npm, Linuxbrew, system-package, or administrator-managed channel.
+- `update --self` refuses to overwrite the binary: the current copy is not managed by the MuxLM installer, so keep using its original installation method.
+- If the cause is still unclear, run `cld doctor` and follow its `warning` suggestions. The command does not modify the system.
+
 ## First-time setup
 
 First, check that MuxLM can find the AI CLI you plan to use:
@@ -142,7 +215,7 @@ Until you move it, the default catalog is served from this GitHub repository. Do
 
 - Only the selected key is passed to the child CLI; other provider keys are removed from its environment.
 - Codex and OpenCode receive disposable configuration directories.
-- New configuration uses `~/.config/muxlm`. Existing ProviderDeck and ez-switch/cx configuration and secrets remain readable without destructive migration.
+- Configuration overrides are checked in this order: `MUXLM_CONFIG_DIR`, `PROVIDERDECK_CONFIG_DIR`, then `CX_CONFIG_DIR`. With none set, Linux uses `$XDG_CONFIG_HOME/muxlm` or `~/.config/muxlm`, while macOS defaults to `~/.config/muxlm`. Existing ProviderDeck and ez-switch/cx configuration and secrets remain readable without destructive migration.
 - Environment precedence is `MUXLM_*`, then `PROVIDERDECK_*`, then `CX_*`.
 - The installer keeps compatible `providerdeck` and `ez-switch` command aliases when it can do so safely.
 

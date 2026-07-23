@@ -27,10 +27,79 @@ jobs:
         run: go vet ./...
       - name: Race test
         run: go test -race ./...
+      - name: Cross-build Linux binaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          output_dir=$(mktemp -d)
+          trap 'rm -rf "$output_dir"' EXIT
+          for arch in amd64 arm64; do
+            CGO_ENABLED=0 GOOS=linux GOARCH="$arch" \
+              go build -trimpath -o "$output_dir/muxlm-linux-$arch" .
+          done
+      - name: Install ShellCheck
+        run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends shellcheck
+      - name: Check shell scripts
+        run: shellcheck install.sh scripts/ci/install-smoke.sh
+
+  linux-install:
+    name: Linux install (${{ matrix.name }})
+    runs-on: ubuntu-latest
+    continue-on-error: ${{ matrix.experimental }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Debian 13
+            image: debian:13-slim
+            setup: export DEBIAN_FRONTEND=noninteractive; apt-get update && apt-get install -y --no-install-recommends bash ca-certificates curl coreutils
+            experimental: false
+          - name: Fedora 43
+            image: fedora:43
+            setup: ":"
+            experimental: false
+          - name: Alpine 3.22
+            image: alpine:3.22
+            setup: apk add --no-cache bash ca-certificates curl coreutils
+            experimental: true
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: go.sum
+      - name: Build Linux release fixture
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+            go build -trimpath -ldflags="-s -w -X main.appVersion=v0.0.0-smoke" \
+            -o dist/muxlm-linux-amd64 .
+          cp dist/muxlm-linux-amd64 dist/providerdeck-linux-amd64
+          (
+            cd dist
+            sha256sum muxlm-* providerdeck-* > SHA256SUMS
+          )
+      - name: Test install in ${{ matrix.name }}
+        shell: bash
+        env:
+          IMAGE: ${{ matrix.image }}
+          SETUP: ${{ matrix.setup }}
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            --volume "$PWD:/workspace:ro" \
+            --workdir /workspace \
+            "$IMAGE" \
+            /bin/sh -c "$SETUP && exec bash scripts/ci/install-smoke.sh dist"
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: test
+    needs:
+      - test
+      - linux-install
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -72,6 +141,8 @@ jobs:
             cd dist
             sha256sum muxlm-* providerdeck-* > SHA256SUMS
           )
+      - name: Smoke test Linux release asset
+        run: scripts/ci/install-smoke.sh dist
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}

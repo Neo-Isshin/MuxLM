@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,6 +11,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 )
 
 const maxPrivateFileBytes = 2 << 20
@@ -51,22 +54,57 @@ func configRootsForReadE() ([]string, error) {
 		}
 		return []string{abs}, nil
 	}
+	return defaultConfigRootsForReadE(runtime.GOOS)
+}
+
+func defaultConfigRootsForReadE(goos string) ([]string, error) {
+	// XDG_CONFIG_HOME applies only on Linux. In particular, keep the existing
+	// macOS path and legacy-root selection unchanged.
+	if goos == "linux" {
+		if xdg := strings.TrimSpace(os.Getenv("XDG_CONFIG_HOME")); xdg != "" && filepath.IsAbs(xdg) {
+			xdg = filepath.Clean(xdg)
+			// An explicit XDG root is always the write target. Existing
+			// MuxLM/ProviderDeck/cx data in the historical ~/.config tree
+			// remains a read-only fallback until rewritten by a normal mutation.
+			primary := filepath.Join(xdg, "muxlm")
+			var fallbacks []string
+			if home, err := validUserHome(); err == nil {
+				legacyBase := filepath.Join(home, ".config")
+				fallbacks = append(fallbacks,
+					filepath.Join(legacyBase, "muxlm"),
+					filepath.Join(legacyBase, "providerdeck"),
+					filepath.Join(legacyBase, "cx"),
+				)
+			}
+			return appendExistingUnique([]string{primary}, fallbacks), nil
+		}
+	}
+	home, err := validUserHome()
+	if err != nil {
+		return nil, err
+	}
+	return selectExistingConfigRoots([]string{
+		filepath.Join(home, ".config", "muxlm"),
+		filepath.Join(home, ".config", "providerdeck"),
+		filepath.Join(home, ".config", "cx"),
+	}), nil
+}
+
+func validUserHome() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil || strings.TrimSpace(home) == "" {
 		if err == nil {
 			err = errors.New("HOME 为空")
 		}
-		return nil, fmt.Errorf("无法确定配置目录: %w；请设置 HOME 或 MUXLM_CONFIG_DIR", err)
+		return "", fmt.Errorf("无法确定配置目录: %w；请设置 HOME 或 MUXLM_CONFIG_DIR", err)
 	}
 	if !filepath.IsAbs(home) {
-		return nil, fmt.Errorf("HOME 必须是绝对路径；请设置 HOME 或 MUXLM_CONFIG_DIR")
+		return "", fmt.Errorf("HOME 必须是绝对路径；请设置 HOME 或 MUXLM_CONFIG_DIR")
 	}
-	home = filepath.Clean(home)
-	candidates := []string{
-		filepath.Join(home, ".config", "muxlm"),
-		filepath.Join(home, ".config", "providerdeck"),
-		filepath.Join(home, ".config", "cx"),
-	}
+	return filepath.Clean(home), nil
+}
+
+func selectExistingConfigRoots(candidates []string) []string {
 	primary := -1
 	for i, candidate := range candidates {
 		if _, err := os.Lstat(candidate); err == nil || !os.IsNotExist(err) {
@@ -75,7 +113,7 @@ func configRootsForReadE() ([]string, error) {
 		}
 	}
 	if primary == -1 {
-		return []string{candidates[0]}, nil
+		return []string{candidates[0]}
 	}
 	roots := []string{candidates[primary]}
 	for _, candidate := range candidates[primary+1:] {
@@ -83,7 +121,25 @@ func configRootsForReadE() ([]string, error) {
 			roots = append(roots, candidate)
 		}
 	}
-	return roots, nil
+	return roots
+}
+
+func appendExistingUnique(roots, candidates []string) []string {
+	seen := make(map[string]bool, len(roots)+len(candidates))
+	for _, root := range roots {
+		seen[filepath.Clean(root)] = true
+	}
+	for _, candidate := range candidates {
+		candidate = filepath.Clean(candidate)
+		if seen[candidate] {
+			continue
+		}
+		if _, err := os.Lstat(candidate); err == nil || !os.IsNotExist(err) {
+			roots = append(roots, candidate)
+			seen[candidate] = true
+		}
+	}
+	return roots
 }
 
 func providersDir() string         { return filepath.Join(configDir(), "providers") }
@@ -152,6 +208,13 @@ func readPrivateFile(path string) ([]byte, error) {
 	roots, err := configRootsForReadE()
 	if err != nil {
 		return nil, err
+	}
+	return readPrivateFileWithRoots(path, roots)
+}
+
+func readPrivateFileWithRoots(path string, roots []string) ([]byte, error) {
+	if len(roots) == 0 {
+		return nil, errors.New("配置目录列表为空")
 	}
 	root := privateRootForPathWithRoots(path, roots)
 	b, err := readPrivateFileWithin(path, root)
@@ -263,25 +326,122 @@ func fileSecretsPath(providerID string) string {
 	return filepath.Join(providerDir(providerID), "secrets.json")
 }
 
+type secretBackendChoice struct {
+	name     string
+	explicit bool
+	reason   string
+}
+
 func secretBackend() string {
+	// Keep diagnostics passive: secretBackend is used by doctor and must never
+	// contact or unlock a keyring merely to report the selected backend.
+	return chooseSecretBackendPassive().name
+}
+
+func chooseSecretBackendPassive() secretBackendChoice {
 	if b := strings.ToLower(firstEnv("MUXLM_SECRET_BACKEND", "PROVIDERDECK_SECRET_BACKEND", "CX_SECRET_BACKEND")); b != "" {
-		return b
+		return secretBackendChoice{name: b, explicit: true}
 	}
-	if runtime.GOOS == "darwin" {
-		if _, err := exec.LookPath("security"); err == nil {
-			return "keychain"
+	return detectSecretBackend(runtime.GOOS, exec.LookPath, os.Getenv, nil)
+}
+
+func chooseSecretBackend() secretBackendChoice {
+	if b := strings.ToLower(firstEnv("MUXLM_SECRET_BACKEND", "PROVIDERDECK_SECRET_BACKEND", "CX_SECRET_BACKEND")); b != "" {
+		return secretBackendChoice{name: b, explicit: true}
+	}
+	return detectSecretBackend(runtime.GOOS, exec.LookPath, os.Getenv, probeSecretService)
+}
+
+func detectSecretBackend(
+	goos string,
+	lookPath func(string) (string, error),
+	getenv func(string) string,
+	probe func() (bool, string),
+) secretBackendChoice {
+	if goos == "darwin" {
+		if _, err := lookPath("security"); err == nil {
+			return secretBackendChoice{name: "keychain"}
 		}
 	}
-	if runtime.GOOS == "linux" {
-		if _, err := exec.LookPath("secret-tool"); err == nil {
-			return "secret-service"
+	if goos == "linux" {
+		if _, err := lookPath("secret-tool"); err != nil {
+			return secretBackendChoice{name: "file", reason: "未找到 secret-tool"}
+		}
+		if !visibleSessionBus(getenv) {
+			return secretBackendChoice{name: "file", reason: "当前会话没有可用的 D-Bus"}
+		}
+		if probe == nil {
+			return secretBackendChoice{name: "secret-service"}
+		}
+		if ok, reason := probe(); ok {
+			return secretBackendChoice{name: "secret-service"}
+		} else {
+			return secretBackendChoice{name: "file", reason: reason}
 		}
 	}
-	return "file"
+	return secretBackendChoice{name: "file"}
+}
+
+func visibleSessionBus(getenv func(string) string) bool {
+	if strings.TrimSpace(getenv("DBUS_SESSION_BUS_ADDRESS")) != "" {
+		return true
+	}
+	runtimeDir := strings.TrimSpace(getenv("XDG_RUNTIME_DIR"))
+	if runtimeDir == "" || !filepath.IsAbs(runtimeDir) {
+		return false
+	}
+	info, err := os.Lstat(filepath.Join(filepath.Clean(runtimeDir), "bus"))
+	return err == nil && info.Mode()&os.ModeSymlink == 0
+}
+
+func probeSecretService() (bool, string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	// A lookup for an intentionally unused pair tests the D-Bus service without
+	// modifying the keyring. secret-tool exits 1 with no stderr when no matching
+	// password exists; that still proves the service was reached.
+	cmd := exec.CommandContext(ctx, "secret-tool", "lookup",
+		"service", "muxlm-connectivity-probe-v1",
+		"account", "no-password-is-stored-for-this-marker")
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+	if err == nil {
+		return true, ""
+	}
+	if ctx.Err() != nil {
+		return false, "Secret Service 响应超时"
+	}
+	detail := strings.TrimSpace(stderr.String())
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 && detail == "" {
+		return true, ""
+	}
+	if detail != "" {
+		if len(detail) > 160 {
+			detail = detail[:160] + "…"
+		}
+		return false, "Secret Service 不可用：" + detail
+	}
+	return false, "Secret Service 不可用"
 }
 
 func secretSet(providerID, ref, value string) (string, error) {
-	backend := secretBackend()
+	return secretSetWithChoice(providerID, ref, value, chooseSecretBackend(), runtime.GOOS)
+}
+
+func secretSetWithChoice(providerID, ref, value string, choice secretBackendChoice, goos string) (string, error) {
+	if goos == "linux" && choice.name == "file" && !choice.explicit {
+		reason := strings.TrimSpace(choice.reason)
+		if reason == "" {
+			reason = "系统密钥库不可用"
+		}
+		return "", fmt.Errorf("%s；为避免自动降低密钥安全性，未写入明文文件。确认后请设置 MUXLM_SECRET_BACKEND=file 再试", reason)
+	}
+	return secretSetWithBackend(providerID, ref, value, choice.name)
+}
+
+func secretSetWithBackend(providerID, ref, value, backend string) (string, error) {
 	switch backend {
 	case "keychain":
 		// #nosec G204 -- 可执行文件固定，ref 由程序生成并在读取元数据时严格校验。
@@ -296,7 +456,7 @@ func secretSet(providerID, ref, value string) (string, error) {
 		cmd := exec.Command("secret-tool", "store", "--label="+appName, "service", secretService, "account", ref)
 		cmd.Stdin = strings.NewReader(value + "\n")
 		if out, err := cmd.CombinedOutput(); err != nil {
-			return "", fmt.Errorf("写入 Secret Service 失败: %v (%s)", err, strings.TrimSpace(string(out)))
+			return "", fmt.Errorf("写入 Secret Service 失败: %v (%s)；如确认接受 0600 权限的明文文件，可设置 MUXLM_SECRET_BACKEND=file 后重试", err, strings.TrimSpace(string(out)))
 		}
 	case "file":
 		path := fileSecretsPath(providerID)

@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
@@ -24,6 +25,11 @@ type doctorConfigStatus struct {
 	detail   string
 	warnings []string
 	errors   []string
+}
+
+type doctorLinuxStatus struct {
+	lines    []string
+	warnings []string
 }
 
 // runDoctor performs local, read-only diagnostics. In particular, it never
@@ -48,6 +54,11 @@ func runDoctor(w io.Writer) error {
 	if warning := doctorBackendWarning(backend); warning != "" {
 		warnings = append(warnings, warning)
 	}
+	linux := inspectDoctorLinux(runtime.GOOS, backend)
+	for _, line := range linux.lines {
+		fmt.Fprintln(w, line)
+	}
+	warnings = append(warnings, linux.warnings...)
 
 	cliWarnings := 0
 	for _, name := range []string{"codex", "claude", "opencode"} {
@@ -254,6 +265,10 @@ func inspectDoctorProviderMetadata() (warnings, problems []string) {
 				problems = append(problems, fmt.Sprintf("%s/keys.json version %d 不支持", id, file.Version))
 			} else if err := validateKeyRecords(id, file.Keys); err != nil {
 				problems = append(problems, fmt.Sprintf("%s/keys.json 无效: %v", id, err))
+			} else {
+				for _, warning := range doctorStoredKeyBackendWarnings(file.Keys, runtime.GOOS) {
+					warnings = append(warnings, fmt.Sprintf("%s/keys.json：%s", id, warning))
+				}
 			}
 		}
 		if path, found, err := resolveDoctorProviderFile(roots, id, "provider.json"); err != nil {
@@ -287,6 +302,31 @@ func inspectDoctorProviderMetadata() (warnings, problems []string) {
 		}
 	}
 	return warnings, problems
+}
+
+func doctorStoredKeyBackendWarnings(keys []KeyRecord, goos string) []string {
+	usesKeychain, usesSecretService := false, false
+	for _, key := range keys {
+		usesKeychain = usesKeychain || key.Backend == "keychain"
+		usesSecretService = usesSecretService || key.Backend == "secret-service"
+	}
+	var warnings []string
+	if usesKeychain && goos != "darwin" {
+		warnings = append(warnings, "有些 key 保存在 macOS Keychain，当前系统无法读取；请通过环境变量提供，或在本机重新保存")
+	}
+	if usesSecretService {
+		switch {
+		case goos != "linux":
+			warnings = append(warnings, "有些 key 保存在 Linux Secret Service，当前系统无法读取；请通过环境变量提供，或在本机重新保存")
+		case !visibleSessionBus(os.Getenv):
+			warnings = append(warnings, "有些 key 保存在 Secret Service，但当前没有桌面 D-Bus 会话；请回到有密钥环的会话，或通过环境变量提供")
+		default:
+			if _, err := exec.LookPath("secret-tool"); err != nil {
+				warnings = append(warnings, "有些 key 保存在 Secret Service，但 PATH 中没有 secret-tool；请安装后重试")
+			}
+		}
+	}
+	return warnings
 }
 
 func resolveDoctorFile(name string) (path, root string, rootIndex int, found bool, err error) {
@@ -405,4 +445,104 @@ func doctorBackendWarning(backend string) string {
 		return fmt.Sprintf("密钥后端 %s 需要 %s，但它不在 PATH 中", backend, command)
 	}
 	return ""
+}
+
+// inspectDoctorLinux only examines environment variables, PATH entries, and
+// local file metadata. It deliberately does not invoke secret-tool, contact
+// D-Bus, read a stored secret, or make a network request.
+func inspectDoctorLinux(goos, backend string) doctorLinuxStatus {
+	if goos != "linux" {
+		return doctorLinuxStatus{}
+	}
+
+	status := doctorLinuxStatus{}
+	appendCommand := func(label, command, purpose string) {
+		path, err := exec.LookPath(command)
+		if err == nil {
+			status.lines = append(status.lines, fmt.Sprintf("%-9s ✓ %q", label, path))
+			return
+		}
+		status.lines = append(status.lines, fmt.Sprintf("%-9s ⚠ 未找到（%s）", label, purpose))
+		status.warnings = append(status.warnings, fmt.Sprintf("PATH 中没有 %s；%s", command, purpose))
+	}
+	appendCommand("bash", "bash", "MuxLM 自更新需要 bash")
+	appendCommand("curl", "curl", "安装和自更新需要 curl")
+
+	if path, err := exec.LookPath("sha256sum"); err == nil {
+		status.lines = append(status.lines, fmt.Sprintf("%-9s ✓ %q", "文件校验", path))
+	} else if path, err := exec.LookPath("shasum"); err == nil {
+		status.lines = append(status.lines, fmt.Sprintf("%-9s ✓ %q", "文件校验", path))
+	} else {
+		status.lines = append(status.lines, fmt.Sprintf("%-9s ⚠ 未找到（需要 sha256sum 或 shasum）", "文件校验"))
+		status.warnings = append(status.warnings, "PATH 中没有 sha256sum 或 shasum；安装器无法校验下载文件")
+	}
+
+	configuredBackend := strings.ToLower(firstEnv(
+		"MUXLM_SECRET_BACKEND",
+		"PROVIDERDECK_SECRET_BACKEND",
+		"CX_SECRET_BACKEND",
+	))
+	switch backend {
+	case "secret-service":
+		status.lines = append(status.lines, "密钥存储  系统密钥环（Secret Service）")
+		if !visibleSessionBus(os.Getenv) {
+			status.warnings = append(status.warnings,
+				"未发现桌面 D-Bus 会话，Secret Service 可能不可用；无桌面服务器请设置 MUXLM_SECRET_BACKEND=file")
+		}
+	case "file":
+		status.lines = append(status.lines, "密钥存储  本地文件（权限 0600，适合无桌面 Linux）")
+		if configuredBackend == "" {
+			status.warnings = append(status.warnings,
+				"当前自动使用本地密钥文件；无桌面服务器建议设置 MUXLM_SECRET_BACKEND=file，避免环境变化后切换后端")
+		}
+	}
+
+	if line, warning := doctorLinuxUserBin(); line != "" {
+		status.lines = append(status.lines, line)
+		if warning != "" {
+			status.warnings = append(status.warnings, warning)
+		}
+	}
+	return status
+}
+
+func doctorLinuxUserBin() (line, warning string) {
+	home, err := os.UserHomeDir()
+	if err != nil || strings.TrimSpace(home) == "" {
+		return "", ""
+	}
+	userBin := filepath.Join(home, ".local", "bin")
+	hasMuxLMEntry := false
+	for _, name := range []string{"muxlm", "cdx", "cld", "opc"} {
+		if _, err := os.Lstat(filepath.Join(userBin, name)); err == nil {
+			hasMuxLMEntry = true
+			break
+		}
+	}
+	if !hasMuxLMEntry {
+		return "", ""
+	}
+	if pathContainsDir(os.Getenv("PATH"), userBin) {
+		return fmt.Sprintf("%-9s ✓ %q", "用户命令", userBin), ""
+	}
+	return fmt.Sprintf("%-9s ⚠ %q 不在 PATH 中", "用户命令", userBin),
+		fmt.Sprintf(`%s 中有 MuxLM 命令但目录不在 PATH；请执行 export PATH="%s:$PATH"`, userBin, userBin)
+}
+
+func pathContainsDir(pathValue, dir string) bool {
+	dirAbs, err := filepath.Abs(dir)
+	if err != nil {
+		return false
+	}
+	dirAbs = filepath.Clean(dirAbs)
+	for _, entry := range filepath.SplitList(pathValue) {
+		if strings.TrimSpace(entry) == "" {
+			continue
+		}
+		entryAbs, err := filepath.Abs(entry)
+		if err == nil && filepath.Clean(entryAbs) == dirAbs {
+			return true
+		}
+	}
+	return false
 }

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 
@@ -292,6 +293,21 @@ func addNamedKey(p *Provider, region, cli, model string) (string, error) {
 			return "", fmt.Errorf("key 名称 %q 已存在，请换一个名称", name)
 		}
 	}
+	backendChoice := chooseSecretBackend()
+	if runtime.GOOS == "linux" && backendChoice.name == "file" && !backendChoice.explicit {
+		reason := strings.TrimSpace(backendChoice.reason)
+		if reason == "" {
+			reason = "系统密钥库不可用"
+		}
+		fmt.Fprintf(os.Stderr, "⚠ %s。\n", reason)
+		fmt.Fprintln(os.Stderr, "可改用仅当前用户可读（0600）的明文文件；也可稍后配置 Secret Service 再试。")
+		if strings.ToLower(promptLine("确认用明文文件保存？输入 yes: ")) != "yes" {
+			return "", fmt.Errorf("未保存 key；确认接受明文文件时，可设置 MUXLM_SECRET_BACKEND=file 后重试")
+		}
+		// The user approved the file backend for this write only. Persisting the
+		// choice remains opt-in through MUXLM_SECRET_BACKEND=file.
+		backendChoice.explicit = true
+	}
 	var val string
 	intl := region == "intl"
 	for {
@@ -322,7 +338,7 @@ func addNamedKey(p *Provider, region, cli, model string) (string, error) {
 	}
 	id := randomID()
 	ref := fmt.Sprintf("provider/%s/key/%s", p.providerID(), id)
-	backend, err := secretSet(p.providerID(), ref, val)
+	backend, err := secretSetWithChoice(p.providerID(), ref, val, backendChoice, runtime.GOOS)
 	if err != nil {
 		return "", err
 	}
@@ -333,7 +349,7 @@ func addNamedKey(p *Provider, region, cli, model string) (string, error) {
 		return "", err
 	}
 	if backend == "file" {
-		fmt.Fprintln(os.Stderr, "⚠ 系统 keychain 不可用；key 已以明文存入 600 权限文件")
+		fmt.Fprintln(os.Stderr, "⚠ 系统密钥库不可用；key 已以明文存入 600 权限文件")
 	}
 	fmt.Fprintf(os.Stderr, "✓ 已保存 key %q [%s]\n", name, backend)
 	return val, nil

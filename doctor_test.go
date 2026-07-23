@@ -21,12 +21,20 @@ func setupDoctorTest(t *testing.T, commands ...string) (configDirPath, binDir st
 	if err := os.Mkdir(binDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
+	commands = append([]string{"bash", "curl", "sha256sum"}, commands...)
+	created := make(map[string]bool)
 	for _, command := range commands {
+		if created[command] {
+			continue
+		}
+		created[command] = true
 		path := filepath.Join(binDir, command)
 		if err := os.WriteFile(path, []byte("#!/bin/sh\nexit 0\n"), 0o700); err != nil {
 			t.Fatal(err)
 		}
 	}
+	t.Setenv("HOME", root)
+	t.Setenv("XDG_CONFIG_HOME", "")
 	t.Setenv("MUXLM_CONFIG_DIR", configDirPath)
 	t.Setenv("PROVIDERDECK_CONFIG_DIR", "")
 	t.Setenv("CX_CONFIG_DIR", "")
@@ -47,13 +55,20 @@ func setupDoctorHomeTest(t *testing.T, commands ...string) (current, providerDec
 	if err := os.Mkdir(binDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
+	commands = append([]string{"bash", "curl", "sha256sum"}, commands...)
+	created := make(map[string]bool)
 	for _, command := range commands {
+		if created[command] {
+			continue
+		}
+		created[command] = true
 		path := filepath.Join(binDir, command)
 		if err := os.WriteFile(path, []byte("#!/bin/sh\nexit 0\n"), 0o700); err != nil {
 			t.Fatal(err)
 		}
 	}
 	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", "")
 	t.Setenv("MUXLM_CONFIG_DIR", "")
 	t.Setenv("PROVIDERDECK_CONFIG_DIR", "")
 	t.Setenv("CX_CONFIG_DIR", "")
@@ -129,6 +144,139 @@ func TestDoctorMissingCLIsAreWarnings(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "status    ✓ OK (3 warning(s))") {
 		t.Fatalf("unexpected status:\n%s", out.String())
+	}
+}
+
+func TestDoctorLinuxExplainsDependenciesFileBackendAndUserPath(t *testing.T) {
+	_, bin := setupDoctorTest(t)
+	userBin := filepath.Join(os.Getenv("HOME"), ".local", "bin")
+	if err := os.MkdirAll(userBin, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(userBin, "cld"), []byte("#!/bin/sh\nexit 0\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	status := inspectDoctorLinux("linux", "file")
+	text := strings.Join(status.lines, "\n") + "\n" + strings.Join(status.warnings, "\n")
+	for _, want := range []string{
+		"bash      ✓",
+		"curl      ✓",
+		"文件校验",
+		"sha256sum",
+		"密钥存储  本地文件（权限 0600，适合无桌面 Linux）",
+		fmt.Sprintf(`%q 不在 PATH 中`, userBin),
+		fmt.Sprintf(`export PATH="%s:$PATH"`, userBin),
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("Linux doctor output missing %q:\n%s", want, text)
+		}
+	}
+
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+userBin)
+	status = inspectDoctorLinux("linux", "file")
+	text = strings.Join(status.lines, "\n") + "\n" + strings.Join(status.warnings, "\n")
+	if !strings.Contains(text, "用户命令") ||
+		!strings.Contains(text, fmt.Sprintf(`✓ %q`, userBin)) ||
+		strings.Contains(text, "不在 PATH") {
+		t.Fatalf("Linux doctor did not recognize the user bin PATH entry:\n%s", text)
+	}
+}
+
+func TestDoctorLinuxReportsMissingInstallDependencies(t *testing.T) {
+	setupDoctorTest(t)
+	emptyBin := t.TempDir()
+	t.Setenv("PATH", emptyBin)
+
+	status := inspectDoctorLinux("linux", "file")
+	text := strings.Join(status.lines, "\n") + "\n" + strings.Join(status.warnings, "\n")
+	for _, want := range []string{
+		"bash      ⚠ 未找到",
+		"curl      ⚠ 未找到",
+		"文件校验",
+		"需要 sha256sum 或 shasum",
+		"安装器无法校验下载文件",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("Linux dependency guidance missing %q:\n%s", want, text)
+		}
+	}
+	if len(status.warnings) != 3 {
+		t.Fatalf("Linux dependency warning count=%d, want 3:\n%s", len(status.warnings), text)
+	}
+}
+
+func TestDoctorLinuxDoesNotRunSecretTool(t *testing.T) {
+	_, bin := setupDoctorTest(t, "secret-tool")
+	marker := filepath.Join(t.TempDir(), "secret-tool-ran")
+	script := fmt.Sprintf("#!/bin/sh\n: > %q\nexit 0\n", marker)
+	if err := os.WriteFile(filepath.Join(bin, "secret-tool"), []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("MUXLM_SECRET_BACKEND", "secret-service")
+	t.Setenv("DBUS_SESSION_BUS_ADDRESS", "unix:path=/run/user/1000/bus")
+
+	var out bytes.Buffer
+	if err := runDoctor(&out); err != nil {
+		t.Fatalf("doctor failed: %v\n%s", err, out.String())
+	}
+	status := inspectDoctorLinux("linux", "secret-service")
+	if _, err := os.Lstat(marker); !os.IsNotExist(err) {
+		t.Fatalf("doctor invoked secret-tool: %v", err)
+	}
+	text := strings.Join(status.lines, "\n") + "\n" + strings.Join(status.warnings, "\n")
+	if !strings.Contains(text, "密钥存储  系统密钥环（Secret Service）") ||
+		strings.Contains(text, "D-Bus") {
+		t.Fatalf("unexpected Secret Service guidance:\n%s", text)
+	}
+}
+
+func TestDoctorLinuxRecognizesRuntimeBusWithoutContactingIt(t *testing.T) {
+	setupDoctorTest(t, "secret-tool")
+	t.Setenv("MUXLM_SECRET_BACKEND", "secret-service")
+	t.Setenv("DBUS_SESSION_BUS_ADDRESS", "")
+	runtimeDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(runtimeDir, "bus"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("XDG_RUNTIME_DIR", runtimeDir)
+
+	status := inspectDoctorLinux("linux", "secret-service")
+	if strings.Contains(strings.Join(status.warnings, "\n"), "D-Bus") {
+		t.Fatalf("existing XDG runtime bus was ignored: %#v", status)
+	}
+}
+
+func TestDoctorWarnsWhenStoredSecretBackendIsUnavailable(t *testing.T) {
+	config, _ := setupDoctorTest(t)
+	writeDoctorTestJSON(t, filepath.Join(config, "providers", "kimi", "keys.json"), keyFile{
+		Version: 1,
+		Keys: []KeyRecord{{
+			ID:      "key1",
+			Name:    "key1",
+			Plan:    "coding",
+			Region:  "cn",
+			Backend: "secret-service",
+			Ref:     "provider/kimi/key/key1",
+		}},
+	}, 0o600)
+
+	var out bytes.Buffer
+	if err := runDoctor(&out); err != nil {
+		t.Fatalf("doctor failed: %v\n%s", err, out.String())
+	}
+	if !strings.Contains(out.String(), "kimi/keys.json：有些 key 保存在") ||
+		!strings.Contains(out.String(), "Secret Service") ||
+		(!strings.Contains(out.String(), "当前没有桌面 D-Bus 会话") &&
+			!strings.Contains(out.String(), "当前系统无法读取")) {
+		t.Fatalf("doctor did not explain the unavailable stored backend:\n%s", out.String())
+	}
+	t.Setenv("DBUS_SESSION_BUS_ADDRESS", "")
+	t.Setenv("XDG_RUNTIME_DIR", "")
+	if warnings := strings.Join(doctorStoredKeyBackendWarnings([]KeyRecord{{
+		Backend: "secret-service",
+	}}, "linux"), "\n"); !strings.Contains(warnings, "当前没有桌面 D-Bus 会话") {
+		t.Fatalf("Linux headless backend warning missing: %s", warnings)
 	}
 }
 
