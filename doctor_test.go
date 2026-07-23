@@ -260,6 +260,8 @@ func TestDoctorWarnsWhenStoredSecretBackendIsUnavailable(t *testing.T) {
 			Ref:     "provider/kimi/key/key1",
 		}},
 	}, 0o600)
+	t.Setenv("DBUS_SESSION_BUS_ADDRESS", "")
+	t.Setenv("XDG_RUNTIME_DIR", "")
 
 	var out bytes.Buffer
 	if err := runDoctor(&out); err != nil {
@@ -271,8 +273,6 @@ func TestDoctorWarnsWhenStoredSecretBackendIsUnavailable(t *testing.T) {
 			!strings.Contains(out.String(), "当前系统无法读取")) {
 		t.Fatalf("doctor did not explain the unavailable stored backend:\n%s", out.String())
 	}
-	t.Setenv("DBUS_SESSION_BUS_ADDRESS", "")
-	t.Setenv("XDG_RUNTIME_DIR", "")
 	if warnings := strings.Join(doctorStoredKeyBackendWarnings([]KeyRecord{{
 		Backend: "secret-service",
 	}}, "linux"), "\n"); !strings.Contains(warnings, "当前没有桌面 D-Bus 会话") {
