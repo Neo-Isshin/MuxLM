@@ -1,10 +1,19 @@
 # MuxLM
 
-用一条短命令，为 Codex、Claude Code 或 OpenCode 选择 provider 和模型。
+用一条短命令，用自定义provider与model启动 Codex、Claude Code 或 OpenCode。
 
 [English](README.md)
 
 MuxLM 是轻量 CLI 切换器，不是代理服务。底层 CLI 会直连所选 provider；启动时使用的临时配置也不会污染原有全局配置。
+
+## 使用示例
+如你需要在codex中使用glm5.2模型 ，你可以直接输入`cdx glm52`即可启动使用了glm5.2模型的codex cli。
+
+若glm5.2为智谱最新模型，则可以直接输入`cdx glm`即可。catalog会自动更新。claude code：`cld`。opencode：`opc`。
+
+初次使用某provider，会提示你自动输入key等信息。详见下文。
+
+为了不增加CLI入口与记忆负担，`cld`命令还集成了本项目的其他设置功能。
 
 ## 主要优势
 
