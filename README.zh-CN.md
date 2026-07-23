@@ -24,7 +24,7 @@ MuxLM 是轻量 CLI 切换器，不是代理服务。底层 CLI 会直连所选 
 - 支持具名 key、国内/海外线路和自定义 provider
 - 无守护进程、无数据库、无 GUI、无协议代理
 
-## 安装
+## 安装 One-Liner
 
 预编译版本支持 macOS、Linux 的 ARM64 和 AMD64。你还需要先安装准备使用的底层 CLI，并确保它在 `PATH` 中。
 
@@ -42,79 +42,6 @@ curl -fsSL https://raw.githubusercontent.com/Neo-Isshin/MuxLM/main/install.sh | 
 
 它不会静默运行 `sudo`；执行系统包管理器前必须在终端确认。由于最外层命令本身需要 `curl` 和 `bash`，如果其中任何一个尚未安装，请先使用系统包管理器安装，再运行上面的 one-liner。
 
-## Linux 使用指南
-
-### 支持范围
-
-MuxLM 提供 Linux AMD64（`x86_64`）和 ARM64（`aarch64`/`arm64`）静态二进制，主要覆盖 Debian、Ubuntu 和 Fedora。Arch 等常见发行版通常也可直接运行；Alpine 列为尽力兼容，因为 Codex、Claude Code、OpenCode 及其 Node.js 依赖未必完整支持 musl。
-
-MuxLM 本身不要求在目标机器安装 Go 或 Git。通过上面的命令安装和自更新时需要：
-
-- `bash`
-- `curl`
-- `sha256sum` 或 `shasum`
-- 基础 Unix 命令，包括 `awk`、`sed`、`mktemp` 和 `readlink`
-
-Debian/Ubuntu 和 Fedora 的 `coreutils` 包都提供 `sha256sum`。缺少依赖时，安装器会一次列出所有缺失项和可执行的包管理器命令；`--install-deps` 只补齐 MuxLM 安装所需的系统依赖，不会安装 Codex、Claude Code 或 OpenCode。
-
-### 把用户命令目录加入 PATH
-
-默认安装目录是 `~/.local/bin`。如果安装完成后出现 `cld: command not found`，先在当前终端执行：
-
-```bash
-export PATH="$HOME/.local/bin:$PATH"
-cld doctor
-```
-
-Bash 或 Zsh 用户可以把同一条 `export` 命令加入 `~/.bashrc` 或 `~/.zshrc`；Fish 用户可以运行 `fish_add_path ~/.local/bin`。重新打开终端后，可用下面的命令确认：
-
-```bash
-command -v cdx cld opc
-```
-
-`cld doctor` 会检查 Linux 安装依赖、实际密钥后端、用户命令目录以及三个 AI 工具是否能从 `PATH` 找到。它只读取本地路径和配置元数据，不读取 API key、不连接密钥服务，也不发起网络请求。
-
-### 桌面 Linux 与无桌面服务器
-
-有桌面会话时，MuxLM 会在 `secret-tool` 和会话 D-Bus 可用时选择 Secret Service。Debian/Ubuntu 可安装提供 `secret-tool` 的 `libsecret-tools`，Fedora 对应 `libsecret`；还需要登录会话中的 GNOME Keyring、KWallet 等 Secret Service 服务处于可用状态。
-
-VPS、NAS 和其它无桌面 Linux 通常没有会话 D-Bus。建议在使用 MuxLM 前显式选择本地文件后端：
-
-```bash
-export MUXLM_SECRET_BACKEND=file
-cld doctor
-```
-
-需要长期使用时，把这条 `export` 加入登录 shell 配置。文件后端将密钥以明文保存在 MuxLM 配置目录内的私有文件中，并强制使用 `0600` 权限；不要同步、共享或提交该目录。
-
-配置目录的选择顺序是：
-
-1. `MUXLM_CONFIG_DIR`
-2. `PROVIDERDECK_CONFIG_DIR`
-3. `CX_CONFIG_DIR`
-4. Linux 上的 `$XDG_CONFIG_HOME/muxlm`
-5. `~/.config/muxlm`
-
-已有 `~/.config/muxlm`、ProviderDeck 或 ez-switch/cx 配置仍会按兼容规则读取，不需要手工搬迁。
-
-### Linux 上的工具更新边界
-
-```bash
-cld update --tool
-```
-
-这条命令会找到 `PATH` 中已有的 Codex、Claude Code 和 OpenCode，并调用各自公开的 `update`/`upgrade` 命令。安装来源的识别和升级由底层工具完成；MuxLM 不会自行运行 `apt`、`dnf`、`pacman`、AUR helper 或 Nix，也不会把工具切换到另一种安装来源。
-
-如果某个工具由发行版包、只读系统目录或管理员统一部署，其自带更新可能拒绝操作。这时其余工具仍会继续更新；失败的工具请使用原来的包管理器或联系管理员升级。`cld update --self` 也只更新由本文安装器管理的 MuxLM，不会覆盖系统包或手工放置的二进制。
-
-### Linux 故障排查
-
-- `cld` 找不到：把 `~/.local/bin` 加入 `PATH`，然后重新打开终端。
-- `doctor` 显示 `codex`、`claude` 或 `opencode` 未找到：安装你实际要使用的底层 CLI，并确认其命令在 `PATH` 中；未使用的工具可以忽略。
-- Secret Service 保存失败：桌面环境检查 `secret-tool`、会话 D-Bus 和已解锁的密钥环；无桌面服务器设置 `MUXLM_SECRET_BACKEND=file`。
-- `update --tool` 中某个工具失败：使用该工具原来的 npm、Linuxbrew、系统包或管理员部署方式升级。
-- `update --self` 拒绝覆盖：当前二进制不受 MuxLM 安装器管理，请沿用原安装方式。
-- 仍无法判断时：运行 `cld doctor`，按 `warning` 后的建议处理；该命令不会修改系统。
 
 ## 首次使用
 
