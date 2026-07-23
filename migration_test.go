@@ -473,7 +473,7 @@ func TestReleaseAssetNamingMatchesInstaller(t *testing.T) {
 func TestVersionOutputUsesMuxLMBrand(t *testing.T) {
 	isolatedConfig(t)
 	output := captureStdout(t, printVersion)
-	if !strings.HasPrefix(output, "MuxLM v2.1.0\n") {
+	if !strings.HasPrefix(output, "MuxLM v2.2.0\n") {
 		t.Fatalf("version output = %q", output)
 	}
 }

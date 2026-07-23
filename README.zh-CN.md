@@ -240,7 +240,7 @@ export MUXLM_CATALOG_URL=https://example.com/catalog.json
 
 ```bash
 go test ./...
-go build -ldflags "-X main.appVersion=v2.1.0" -o muxlm .
+go build -ldflags "-X main.appVersion=v2.2.0" -o muxlm .
 ```
 
 采用 [MIT License](LICENSE)。种子 catalog 含有社区来源数据，详见[第三方声明](THIRD_PARTY_NOTICES.md)。

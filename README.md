@@ -240,7 +240,7 @@ Until you move it, the default catalog is served from this GitHub repository. Do
 
 ```bash
 go test ./...
-go build -ldflags "-X main.appVersion=v2.1.0" -o muxlm .
+go build -ldflags "-X main.appVersion=v2.2.0" -o muxlm .
 ```
 
 Licensed under the [MIT License](LICENSE). The seed catalog includes community-derived data; see [third-party notices](THIRD_PARTY_NOTICES.md).
