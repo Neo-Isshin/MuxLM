@@ -81,25 +81,52 @@ func TestPlansShareDirectoryButKeepSeparateKeys(t *testing.T) {
 	}
 }
 
-func TestKimiCodingDefaultsToK3(t *testing.T) {
+func TestKimiAliasesSeparateAPIAndCodingPlans(t *testing.T) {
 	isolatedConfig(t)
 	idx := buildIndex()
-	for _, alias := range []string{"kimic", "k3"} {
+	apiModels := map[string]string{
+		"k":   "kimi-k3",
+		"k27": "kimi-k2.7-code",
+		"k26": "kimi-k2.6",
+	}
+	for alias, model := range apiModels {
 		resolved, ok := idx[alias]
-		if !ok || resolved.Prov.Alias != "kimic" || resolved.Model.ID != "k3" {
+		if !ok || resolved.Prov.Alias != "k" || resolved.Prov.Plan != "standard" || resolved.Model.ID != model {
 			t.Fatalf("%s = %#v", alias, resolved)
 		}
 	}
 
-	previous := cloneCatalog(t, &embeddedCatalog)
-	previous.Revision = "2026-07-18.2"
-	for i := range previous.Providers {
-		if previous.Providers[i].Alias == "kimic" {
-			previous.Providers[i].Models = []Model{{ID: "kimi-for-coding", Latest: true}}
+	coding, ok := idx["kc"]
+	if !ok || coding.Prov.Plan != "coding" || coding.Model.ID != "kimi-for-coding" || len(coding.Prov.Models) != 1 {
+		t.Fatalf("kc = %#v", coding)
+	}
+	kcModel, kcEnv := claudeLaunchSettings(coding.Prov, coding.Model.ID, coding.Prov.ClaudeURL, "secret")
+	if kcModel != "kimi-for-coding" || kcEnv["ANTHROPIC_DEFAULT_HAIKU_MODEL"] != kcModel ||
+		kcEnv["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] != "262144" {
+		t.Fatalf("Kimi Coding Claude settings = %q %#v", kcModel, kcEnv)
+	}
+
+	for _, retired := range []string{"k3", "kimi", "kimic", "kimi26"} {
+		if _, exists := idx[retired]; exists {
+			t.Fatalf("retired Kimi alias %q is still active", retired)
 		}
 	}
-	if err := validateCatalogEvolution(previous, &embeddedCatalog); err != nil {
-		t.Fatalf("existing users cannot update to K3 catalog: %v", err)
+
+	api := idx["k"].Prov
+	if !api.supports("claude") || api.ClaudeURL != "https://api.moonshot.cn/anthropic" {
+		t.Fatalf("Kimi API Claude route = %#v", api)
+	}
+	claudeModel, claudeEnv := claudeLaunchSettings(api, "kimi-k3", api.ClaudeURL, "secret")
+	if claudeModel != "kimi-k3[1m]" ||
+		claudeEnv["ANTHROPIC_DEFAULT_HAIKU_MODEL"] != claudeModel ||
+		claudeEnv["CLAUDE_CODE_SUBAGENT_MODEL"] != claudeModel ||
+		claudeEnv["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] != "1048576" ||
+		claudeEnv["ENABLE_TOOL_SEARCH"] != "false" {
+		t.Fatalf("Kimi K3 Claude settings = %q %#v", claudeModel, claudeEnv)
+	}
+	k27Model, k27Env := claudeLaunchSettings(api, "kimi-k2.7-code", api.ClaudeURL, "secret")
+	if k27Model != "kimi-k2.7-code" || k27Env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] != "262144" {
+		t.Fatalf("Kimi K2.7 Claude settings = %q %#v", k27Model, k27Env)
 	}
 }
 
@@ -410,12 +437,16 @@ func TestChildEnvScrubsOtherProviderKeys(t *testing.T) {
 	t.Setenv("MINIMAX_KEY", "minimax-secret")
 	t.Setenv("CX_PROVIDER_RETIRED_KEY", "retired-secret")
 	t.Setenv("CX_PROVIDER_RETIRED_KEY_INTL", "retired-intl-secret")
-	env := strings.Join(childEnv(map[string]string{"ANTHROPIC_AUTH_TOKEN": "chosen"}), "\n")
+	t.Setenv("ANTHROPIC_MODEL", "stale-model")
+	env := strings.Join(childEnv(map[string]string{"ANTHROPIC_AUTH_TOKEN": "chosen", "ANTHROPIC_MODEL": "chosen-model"}), "\n")
 	if strings.Contains(env, "glm-secret") || strings.Contains(env, "minimax-secret") || strings.Contains(env, "retired-secret") || strings.Contains(env, "retired-intl-secret") {
 		t.Fatal("unrelated provider key leaked to child")
 	}
 	if !strings.Contains(env, "ANTHROPIC_AUTH_TOKEN=chosen") {
 		t.Fatal("chosen key missing")
+	}
+	if strings.Contains(env, "ANTHROPIC_MODEL=stale-model") || !strings.Contains(env, "ANTHROPIC_MODEL=chosen-model") {
+		t.Fatal("selected model environment did not replace stale parent value")
 	}
 }
 
@@ -445,7 +476,7 @@ func TestConfigViewsShareOneStoreAndFilterByProtocol(t *testing.T) {
 	if !strings.Contains(global, "全局配置中心") || !strings.Contains(global, "ANTHROPIC") || !strings.Contains(global, "OPENAI / WIRE") {
 		t.Fatalf("global config header missing: %s", global)
 	}
-	if !strings.Contains(global, "nvidia") || !strings.Contains(global, "kimic") {
+	if !strings.Contains(global, "nvidia") || !strings.Contains(global, "kc") {
 		t.Fatalf("global config did not include both protocol-only providers: %s", global)
 	}
 	openAI := captureStdout(t, func() {
@@ -453,7 +484,7 @@ func TestConfigViewsShareOneStoreAndFilterByProtocol(t *testing.T) {
 			t.Fatal(err)
 		}
 	})
-	if !strings.Contains(openAI, "OpenAI-compatible 过滤视图") || !strings.Contains(openAI, "nvidia") || !strings.Contains(openAI, "kimic") {
+	if !strings.Contains(openAI, "OpenAI-compatible 过滤视图") || !strings.Contains(openAI, "nvidia") || !strings.Contains(openAI, "kc") {
 		t.Fatalf("codex view missing OpenAI providers: %s", openAI)
 	}
 	opencode := captureStdout(t, func() {
@@ -461,7 +492,7 @@ func TestConfigViewsShareOneStoreAndFilterByProtocol(t *testing.T) {
 			t.Fatal(err)
 		}
 	})
-	if !strings.Contains(opencode, "kimic") || !strings.Contains(opencode, "nvidia") {
+	if !strings.Contains(opencode, "kc") || !strings.Contains(opencode, "nvidia") {
 		t.Fatalf("opencode view is not dual-protocol: %s", opencode)
 	}
 }

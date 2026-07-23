@@ -13,7 +13,8 @@ import (
 
 // ---- claude: inline env + exec（不写全局 settings.json）----
 func launchClaude(p *Provider, model string, skip, intl bool, pass []string) error {
-	key, err := getKey(p, &intl, "claude", model)
+	claudeModel, _ := claudeLaunchSettings(p, model, "", "")
+	key, err := getKey(p, &intl, "claude", claudeModel)
 	if err != nil {
 		return err
 	}
@@ -21,15 +22,52 @@ func launchClaude(p *Provider, model string, skip, intl bool, pass []string) err
 	if url == "" {
 		return fmt.Errorf("%s 没有 claude(anthropic) 端点", p.Name)
 	}
-	args := []string{"--model", model}
+	_, env := claudeLaunchSettings(p, model, url, key)
+	args := []string{"--model", claudeModel}
 	if skip {
 		args = append(args, "--dangerously-skip-permissions")
 	}
 	args = append(args, pass...)
 	// #nosec G204 G702 -- 参数传给用户明确请求的底层 CLI，exec.Command 不经过 shell。
 	cmd := exec.Command("claude", args...)
-	cmd.Env = childEnv(map[string]string{"ANTHROPIC_BASE_URL": url, "ANTHROPIC_AUTH_TOKEN": key})
+	cmd.Env = childEnv(env)
 	return run(cmd)
+}
+
+func claudeLaunchSettings(p *Provider, model, url, key string) (string, map[string]string) {
+	claudeModel := model
+	env := map[string]string{
+		"ANTHROPIC_BASE_URL":   url,
+		"ANTHROPIC_AUTH_TOKEN": key,
+	}
+	if p.providerID() != "kimi" || (p.planID() != "standard" && p.planID() != "coding") {
+		return claudeModel, env
+	}
+
+	// Moonshot exposes a Claude Code compatibility name for K3. Setting every
+	// model slot also keeps background summaries and subagents on the selected
+	// Kimi model instead of falling back to an Anthropic model name.
+	if p.planID() == "standard" && model == "kimi-k3" {
+		claudeModel = "kimi-k3[1m]"
+	}
+	for _, name := range []string{
+		"ANTHROPIC_MODEL",
+		"ANTHROPIC_DEFAULT_OPUS_MODEL",
+		"ANTHROPIC_DEFAULT_SONNET_MODEL",
+		"ANTHROPIC_DEFAULT_HAIKU_MODEL",
+		"ANTHROPIC_DEFAULT_FABLE_MODEL",
+		"CLAUDE_CODE_SUBAGENT_MODEL",
+	} {
+		env[name] = claudeModel
+	}
+	env["ENABLE_TOOL_SEARCH"] = "false"
+	if strings.HasPrefix(claudeModel, "kimi-k3") {
+		env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = "1048576"
+		env["CLAUDE_CODE_EFFORT_LEVEL"] = "max"
+	} else {
+		env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = "262144"
+	}
+	return claudeModel, env
 }
 
 // ---- codex: 一次性 CODEX_HOME（临时 config.toml + auth.json，跑完即弃）----
@@ -209,7 +247,8 @@ func preview(cli string, p *Provider, model string, skip, intl bool, pass []stri
 	fmt.Printf("key      %s\n", keyDesc)
 	switch cli {
 	case "claude":
-		args := []string{"--model", model}
+		claudeModel, _ := claudeLaunchSettings(p, model, p.claudeURL(intl), "")
+		args := []string{"--model", claudeModel}
 		if skip {
 			args = append(args, "--dangerously-skip-permissions")
 		}
@@ -290,7 +329,17 @@ func configuredKeyStatus(p *Provider, intl bool) string {
 func childEnv(extra map[string]string) []string {
 	blocked := map[string]bool{
 		"ANTHROPIC_AUTH_TOKEN": true, "ANTHROPIC_API_KEY": true, "ANTHROPIC_BASE_URL": true,
+		"ANTHROPIC_MODEL": true, "ANTHROPIC_SMALL_FAST_MODEL": true,
+		"ANTHROPIC_DEFAULT_OPUS_MODEL": true, "ANTHROPIC_DEFAULT_OPUS_MODEL_NAME": true,
+		"ANTHROPIC_DEFAULT_SONNET_MODEL": true, "ANTHROPIC_DEFAULT_SONNET_MODEL_NAME": true,
+		"ANTHROPIC_DEFAULT_HAIKU_MODEL": true, "ANTHROPIC_DEFAULT_HAIKU_MODEL_NAME": true,
+		"ANTHROPIC_DEFAULT_FABLE_MODEL": true, "ANTHROPIC_DEFAULT_FABLE_MODEL_NAME": true,
+		"CLAUDE_CODE_SUBAGENT_MODEL": true, "CLAUDE_CODE_AUTO_COMPACT_WINDOW": true,
+		"CLAUDE_CODE_EFFORT_LEVEL": true, "ENABLE_TOOL_SEARCH": true,
 		"OPENAI_API_KEY": true, "CODEX_HOME": true, "OPENCODE_CONFIG_DIR": true,
+	}
+	for name := range extra {
+		blocked[name] = true
 	}
 	// Always retain the built-in list as a scrub set. A remote catalog may
 	// remove a provider, but that must never make its old key visible again.

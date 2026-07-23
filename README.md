@@ -25,6 +25,14 @@ curl -fsSL https://raw.githubusercontent.com/Neo-Isshin/MuxLM/main/install.sh | 
 
 The installer verifies the release checksum, installs `muxlm` to `~/.local/bin`, and creates the `cdx`, `cld`, and `opc` commands. Add that directory to `PATH` if the installer asks you to.
 
+Before downloading, the installer checks all of its dependencies and prints the appropriate command for apt, dnf, yum, apk, pacman, zypper, or Homebrew. It can also run that command after asking for confirmation:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Neo-Isshin/MuxLM/main/install.sh | bash -s -- --install-deps
+```
+
+It never runs `sudo` silently. Because the outer one-liner itself requires `curl` and `bash`, install either of those with the system package manager first if it is not already available.
+
 ## Linux guide
 
 ### Supported systems
@@ -36,8 +44,9 @@ The target machine does not need Go or Git. Installation with the command above 
 - `bash`
 - `curl`
 - `sha256sum` or `shasum`
+- Basic Unix commands including `awk`, `sed`, `mktemp`, and `readlink`
 
-The `coreutils` package provides `sha256sum` on Debian/Ubuntu and Fedora. If a dependency is missing, install `bash`, `curl`, and `coreutils` with the system package manager, then run the installer again.
+The `coreutils` package provides `sha256sum` on Debian/Ubuntu and Fedora. When something is missing, the installer reports every missing command together and shows the package-manager command that can fix it. `--install-deps` only installs requirements for the MuxLM installer; it does not install Codex, Claude Code, or OpenCode.
 
 ### Add the user command directory to PATH
 
@@ -116,10 +125,16 @@ cld list
 Then choose a provider and launch. On first use, MuxLM asks for the provider's API key without showing it on screen, validates it, and stores it securely:
 
 ```bash
-cld k3                     # Claude Code + Kimi K3
+cld k                      # Claude Code + latest pay-as-you-go Kimi
+cld k27                    # Claude Code + pay-as-you-go Kimi K2.7 Code
+cld kc                     # Claude Code + Kimi Coding Plan
 cdx glm                    # Codex + latest GLM
 opc ds                     # OpenCode + latest DeepSeek
 ```
+
+Use `k` for the pay-as-you-go Kimi API and `k27` or `k26` to pin a model. `kc` uses the Coding Plan and its single Model ID, `kimi-for-coding`. The two products use different API keys. The old `kimi`, `kimic`, `kimi26`, and `k3` aliases are retired so that a command which previously selected the Coding Plan cannot silently move to pay-as-you-go billing.
+
+Kimi K2.7 requires Thinking in Claude Code. After `cld k27` opens Claude Code, press `Tab` and confirm that the interface says `Thinking on`. MuxLM configures Kimi's official Anthropic endpoint, the 256K compaction window, and the background-task model automatically.
 
 The shared management commands—such as `list`, `doctor`, `config`, and `update`—work through any of `cdx`, `cld`, or `opc`.
 
@@ -128,6 +143,8 @@ The shared management commands—such as `list`, `doctor`, `config`, and `update
 Choose an entry command and a provider alias:
 
 ```bash
+cld k27                    # Claude Code + pay-as-you-go Kimi K2.7 Code
+cld kc                     # Claude Code + Kimi Coding Plan
 cld glm                    # Claude Code + latest GLM
 cdx m --intl               # Codex + MiniMax international route
 opc ds                     # OpenCode + latest DeepSeek

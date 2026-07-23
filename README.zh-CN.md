@@ -25,6 +25,14 @@ curl -fsSL https://raw.githubusercontent.com/Neo-Isshin/MuxLM/main/install.sh | 
 
 安装器会校验 release checksum，把 `muxlm` 安装到 `~/.local/bin`，并创建 `cdx`、`cld`、`opc` 三个命令。如果提示该目录不在 `PATH`，按屏幕给出的命令添加即可。
 
+安装器会在下载前统一检查依赖，并针对 apt、dnf、yum、apk、pacman、zypper 或 Homebrew 显示对应的安装命令。也可以让安装器在确认后执行该命令：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Neo-Isshin/MuxLM/main/install.sh | bash -s -- --install-deps
+```
+
+它不会静默运行 `sudo`；执行系统包管理器前必须在终端确认。由于最外层命令本身需要 `curl` 和 `bash`，如果其中任何一个尚未安装，请先使用系统包管理器安装，再运行上面的 one-liner。
+
 ## Linux 使用指南
 
 ### 支持范围
@@ -36,8 +44,9 @@ MuxLM 本身不要求在目标机器安装 Go 或 Git。通过上面的命令安
 - `bash`
 - `curl`
 - `sha256sum` 或 `shasum`
+- 基础 Unix 命令，包括 `awk`、`sed`、`mktemp` 和 `readlink`
 
-Debian/Ubuntu 和 Fedora 的 `coreutils` 包都提供 `sha256sum`。缺少依赖时，可以先使用系统包管理器安装 `bash`、`curl` 和 `coreutils`，再重新运行安装命令。
+Debian/Ubuntu 和 Fedora 的 `coreutils` 包都提供 `sha256sum`。缺少依赖时，安装器会一次列出所有缺失项和可执行的包管理器命令；`--install-deps` 只补齐 MuxLM 安装所需的系统依赖，不会安装 Codex、Claude Code 或 OpenCode。
 
 ### 把用户命令目录加入 PATH
 
@@ -116,10 +125,16 @@ cld list
 然后选择一个 provider 启动。第一次使用时，MuxLM 会提示你输入 API key，输入内容不会显示在屏幕上；验证通过后会安全保存：
 
 ```bash
-cld k3                     # Claude Code + Kimi K3
+cld k                      # Claude Code + 按量计费 Kimi 最新模型
+cld k27                    # Claude Code + 按量计费 Kimi K2.7 Code
+cld kc                     # Claude Code + Kimi Coding Plan
 cdx glm                    # Codex + 最新 GLM
 opc ds                     # OpenCode + 最新 DeepSeek
 ```
+
+Kimi 的按量计费 API 使用 `k`，并可通过 `k27`、`k26` 固定模型；`kc` 使用 Coding Plan，固定调用其唯一 Model ID `kimi-for-coding`。两种产品的 API key 不通用。旧的 `kimi`、`kimic`、`kimi26` 和 `k3` 已退役，避免把原来指向 Coding Plan 的命令静默改成按量计费。
+
+使用 `cld k27` 时，Kimi K2.7 要求 Claude Code 开启 Thinking；进入 Claude Code 后按 `Tab`，确认界面显示 `Thinking on`。MuxLM 会自动配置 Kimi 官方的 Anthropic 端点、256K 压缩窗口以及后台任务模型。
 
 `cdx`、`cld`、`opc` 都能执行 `list`、`doctor`、`config` 和 `update` 等管理命令，任选一个入口即可。
 
@@ -128,6 +143,8 @@ opc ds                     # OpenCode + 最新 DeepSeek
 选择一个入口命令，再加 provider 别名：
 
 ```bash
+cld k27                    # Claude Code + 按量计费 Kimi K2.7 Code
+cld kc                     # Claude Code + Kimi Coding Plan
 cld glm                    # Claude Code + 最新 GLM
 cdx m --intl               # Codex + MiniMax 海外线路
 opc ds                     # OpenCode + 最新 DeepSeek

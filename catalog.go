@@ -2,6 +2,7 @@ package main
 
 import (
 	_ "embed"
+	"errors"
 	"fmt"
 	"os"
 	"reflect"
@@ -38,6 +39,8 @@ type CatalogFile struct {
 	RetiredTags map[string]string `json:"retired_tags,omitempty"`
 	Providers   []Provider        `json:"providers"`
 }
+
+var errCatalogCacheStale = errors.New("catalog cache 旧于内置版本")
 
 // catalog.json is the single source for both the shipped offline seed and the
 // separately hosted update artifact.
@@ -176,7 +179,7 @@ func loadCachedCatalog() (*CatalogFile, error) {
 // cannot disagree about rollback, revision immutability, or trust evolution.
 func validateCachedCatalog(catalog *CatalogFile) error {
 	if compareCatalogRevision(catalog.Revision, embeddedCatalog.Revision) < 0 {
-		return fmt.Errorf("catalog cache %s 旧于内置版本 %s", catalog.Revision, embeddedCatalog.Revision)
+		return fmt.Errorf("%w: %s < %s", errCatalogCacheStale, catalog.Revision, embeddedCatalog.Revision)
 	}
 	if catalog.Revision == embeddedCatalog.Revision && !reflect.DeepEqual(catalog, &embeddedCatalog) {
 		return fmt.Errorf("catalog cache 与同 revision 的内置 catalog 内容不一致")
@@ -201,7 +204,7 @@ func catalogProviders() []Provider {
 	if err == nil {
 		return c.Providers
 	}
-	if !os.IsNotExist(err) {
+	if !os.IsNotExist(err) && !errors.Is(err, errCatalogCacheStale) {
 		fmt.Fprintln(os.Stderr, "⚠ 本地 catalog 无效，已回退到内置版本")
 	}
 	return providers

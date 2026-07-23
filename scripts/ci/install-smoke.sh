@@ -67,6 +67,24 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# Dependency failures must be reported before the installer attempts network or
+# filesystem work. --help must remain usable even with an otherwise empty PATH.
+EMPTY_PATH="$TEST_ROOT/empty-path"
+mkdir -p "$EMPTY_PATH"
+PATH="$EMPTY_PATH" /bin/bash "$INSTALLER" --help >"$EMPTY_PATH/help.log"
+grep -q -- '--install-deps' "$EMPTY_PATH/help.log"
+if env PATH="$EMPTY_PATH" HOME="$TEST_ROOT/empty-home" /bin/bash "$INSTALLER" >"$EMPTY_PATH/missing.log" 2>&1; then
+	echo "installer ignored missing dependencies" >&2
+	exit 1
+fi
+grep -q '缺少安装依赖' "$EMPTY_PATH/missing.log"
+grep -q -- '--install-deps' "$EMPTY_PATH/missing.log"
+if env PATH="$EMPTY_PATH" HOME="$TEST_ROOT/empty-home" /bin/bash "$INSTALLER" --install-deps >"$EMPTY_PATH/noninteractive.log" 2>&1; then
+	echo "installer changed dependencies without interactive confirmation" >&2
+	exit 1
+fi
+grep -q '无法交互确认；未修改系统软件包' "$EMPTY_PATH/noninteractive.log"
+
 REPO=ci/MuxLM
 TAG=v0.0.0-smoke
 API_ROOT="$TEST_ROOT/api"

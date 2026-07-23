@@ -2,9 +2,184 @@
 # 用法: curl -fsSL https://raw.githubusercontent.com/Neo-Isshin/MuxLM/main/install.sh | bash
 set -euo pipefail
 
+usage() {
+  printf '%s\n' \
+    'MuxLM 安装器' \
+    '' \
+    '用法:' \
+    '  bash install.sh' \
+    '  bash install.sh --install-deps' \
+    '  curl -fsSL https://raw.githubusercontent.com/Neo-Isshin/MuxLM/main/install.sh | bash' \
+    '  curl -fsSL https://raw.githubusercontent.com/Neo-Isshin/MuxLM/main/install.sh | bash -s -- --install-deps' \
+    '' \
+    '选项:' \
+    '  --install-deps  检测到缺失依赖时，显示命令并在确认后调用系统包管理器' \
+    '  -h, --help      显示帮助'
+}
+
+INSTALL_DEPS=0
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --install-deps) INSTALL_DEPS=1 ;;
+    -h|--help) usage; exit 0 ;;
+    *) echo "✗ 未知安装参数: $1" >&2; usage >&2; exit 2 ;;
+  esac
+  shift
+done
+
+REQUIRED_COMMANDS=(curl uname sed head awk mkdir mktemp readlink chmod mv ln rm)
+MISSING_COMMANDS=()
+
+collect_missing_dependencies() {
+  MISSING_COMMANDS=()
+  local command_name
+  for command_name in "${REQUIRED_COMMANDS[@]}"; do
+    if ! command -v "$command_name" >/dev/null 2>&1; then
+      MISSING_COMMANDS+=("$command_name")
+    fi
+  done
+  if ! command -v sha256sum >/dev/null 2>&1 && ! command -v shasum >/dev/null 2>&1; then
+    MISSING_COMMANDS+=("sha256sum/shasum")
+  fi
+}
+
+os_release_id() {
+  local key value
+  if [ ! -r /etc/os-release ]; then
+    return
+  fi
+  while IFS='=' read -r key value; do
+    if [ "$key" = "ID" ]; then
+      value=${value#\"}
+      value=${value%\"}
+      printf '%s\n' "$value"
+      return
+    fi
+  done < /etc/os-release
+}
+
+dependency_manager() {
+  local manager distro
+  for manager in apt-get dnf yum apk pacman zypper brew; do
+    if command -v "$manager" >/dev/null 2>&1; then
+      printf '%s\n' "$manager"
+      return
+    fi
+  done
+  distro=$(os_release_id)
+  case "$distro" in
+    debian|ubuntu|linuxmint|pop) printf '%s\n' apt-get ;;
+    fedora|rhel|centos|rocky|almalinux) printf '%s\n' dnf ;;
+    alpine) printf '%s\n' apk ;;
+    arch|manjaro|endeavouros) printf '%s\n' pacman ;;
+    opensuse*|sles) printf '%s\n' zypper ;;
+  esac
+}
+
+dependency_install_hint() {
+  case "$1" in
+    apt-get) printf '%s\n' 'sudo apt-get update && sudo apt-get install -y bash ca-certificates curl coreutils gawk sed' ;;
+    dnf) printf '%s\n' 'sudo dnf install -y bash ca-certificates curl coreutils gawk sed' ;;
+    yum) printf '%s\n' 'sudo yum install -y bash ca-certificates curl coreutils gawk sed' ;;
+    apk) printf '%s\n' 'sudo apk add --no-cache bash ca-certificates curl coreutils gawk sed' ;;
+    pacman) printf '%s\n' 'sudo pacman -S --needed bash ca-certificates curl coreutils gawk sed' ;;
+    zypper) printf '%s\n' 'sudo zypper install -y bash ca-certificates curl coreutils gawk sed' ;;
+    brew) printf '%s\n' 'brew install bash curl coreutils gawk gnu-sed' ;;
+  esac
+}
+
+run_as_root() {
+  if [ "$EUID" -eq 0 ]; then
+    "$@"
+  elif command -v sudo >/dev/null 2>&1; then
+    sudo "$@"
+  else
+    echo "✗ 安装系统依赖需要 root 权限，但没有找到 sudo" >&2
+    return 1
+  fi
+}
+
+install_dependencies() {
+  case "$1" in
+    apt-get)
+      command -v apt-get >/dev/null 2>&1 || return 1
+      run_as_root apt-get update
+      run_as_root apt-get install -y bash ca-certificates curl coreutils gawk sed
+      ;;
+    dnf)
+      command -v dnf >/dev/null 2>&1 || return 1
+      run_as_root dnf install -y bash ca-certificates curl coreutils gawk sed
+      ;;
+    yum)
+      command -v yum >/dev/null 2>&1 || return 1
+      run_as_root yum install -y bash ca-certificates curl coreutils gawk sed
+      ;;
+    apk)
+      command -v apk >/dev/null 2>&1 || return 1
+      run_as_root apk add --no-cache bash ca-certificates curl coreutils gawk sed
+      ;;
+    pacman)
+      command -v pacman >/dev/null 2>&1 || return 1
+      run_as_root pacman -S --needed bash ca-certificates curl coreutils gawk sed
+      ;;
+    zypper)
+      command -v zypper >/dev/null 2>&1 || return 1
+      run_as_root zypper install -y bash ca-certificates curl coreutils gawk sed
+      ;;
+    brew)
+      command -v brew >/dev/null 2>&1 || return 1
+      brew install bash curl coreutils gawk gnu-sed
+      ;;
+    *) return 1 ;;
+  esac
+}
+
+collect_missing_dependencies
+if [ "${#MISSING_COMMANDS[@]}" -gt 0 ]; then
+  MANAGER=$(dependency_manager)
+  echo "✗ 缺少安装依赖: ${MISSING_COMMANDS[*]}" >&2
+  if [ -n "$MANAGER" ]; then
+    echo "  可执行:" >&2
+    echo "    $(dependency_install_hint "$MANAGER")" >&2
+  else
+    echo "  请先使用系统包管理器安装 bash、curl、CA 证书、校验工具和基础 Unix 命令。" >&2
+  fi
+  if [ "$INSTALL_DEPS" != "1" ]; then
+    echo "  也可以重新运行安装器并添加 --install-deps；执行系统安装命令前仍会要求确认。" >&2
+    exit 1
+  fi
+  if [ -z "$MANAGER" ]; then
+    echo "✗ 无法识别系统包管理器，不能自动补齐依赖" >&2
+    exit 1
+  fi
+  echo "  MuxLM 准备执行上面的系统安装命令。" >&2
+  if ! { printf '  是否继续？[y/N] ' >/dev/tty && IFS= read -r REPLY </dev/tty; } 2>/dev/null; then
+    echo "✗ 当前环境无法交互确认；未修改系统软件包" >&2
+    exit 1
+  fi
+  case "$REPLY" in
+    y|Y|yes|YES) ;;
+    *) echo "已取消；未修改系统软件包" >&2; exit 1 ;;
+  esac
+  if ! install_dependencies "$MANAGER"; then
+    echo "✗ 系统依赖安装失败；请手动执行上面显示的命令" >&2
+    exit 1
+  fi
+  collect_missing_dependencies
+  if [ "${#MISSING_COMMANDS[@]}" -gt 0 ]; then
+    echo "✗ 安装后仍缺少依赖: ${MISSING_COMMANDS[*]}" >&2
+    exit 1
+  fi
+  echo "✓ 安装依赖已准备好"
+fi
+
 GITHUB="${GITHUB:-https://github.com}"
 GITHUB_API="${GITHUB_API:-https://api.github.com}"
 REPO="${REPO:-Neo-Isshin/MuxLM}"
+if [ -z "${BINDIR:-}" ] && [ -z "${HOME:-}" ]; then
+  echo "✗ HOME 未设置；请设置 HOME 或通过 BINDIR 指定安装目录" >&2
+  exit 1
+fi
 BINDIR="${BINDIR:-$HOME/.local/bin}"
 FORCE="${FORCE:-0}"
 

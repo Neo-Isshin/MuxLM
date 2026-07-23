@@ -97,6 +97,24 @@ func TestEmbeddedRetiredTagSurvivesFreshInstall(t *testing.T) {
 	}
 }
 
+func TestRetiredKimiAliasesCannotReturn(t *testing.T) {
+	isolatedConfig(t)
+	want := map[string]string{
+		"k3":     "kimi/coding/k3",
+		"kimic":  "kimi/coding/k3",
+		"kimi":   "kimi/standard/kimi-k2.6",
+		"kimi26": "kimi/standard/kimi-k2.6",
+	}
+	for alias, target := range want {
+		if got := embeddedCatalog.RetiredTags[alias]; got != target {
+			t.Fatalf("%s tombstone = %q, want %q", alias, got, target)
+		}
+		if _, exists := buildIndex()[alias]; exists {
+			t.Fatalf("retired Kimi alias %q is active", alias)
+		}
+	}
+}
+
 func removeModelWithTag(t *testing.T, catalog *CatalogFile, tag string) {
 	t.Helper()
 	for providerIndex := range catalog.Providers {

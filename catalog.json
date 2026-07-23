@@ -1,8 +1,12 @@
 {
   "version": 1,
-  "revision": "2026-07-20.1",
+  "revision": "2026-07-23.1",
   "retired_tags": {
     "doubao-code": "doubao/standard/doubao-seed-code-preview-latest",
+    "k3": "kimi/coding/k3",
+    "kimic": "kimi/coding/k3",
+    "kimi": "kimi/standard/kimi-k2.6",
+    "kimi26": "kimi/standard/kimi-k2.6",
     "m3": "minimax/standard/MiniMax-M3"
   },
   "providers": [
@@ -34,27 +38,29 @@
     },
     {
       "id": "kimi",
-      "alias": "kimi",
+      "alias": "k",
       "name": "Moonshot Kimi（按量计费 API）",
       "plan": "standard",
+      "claude_url": "https://api.moonshot.cn/anthropic",
       "openai_url": "https://api.moonshot.cn/v1",
       "key_env": "KIMI_KEY",
-      "cli": ["codex", "opencode"],
-      "models": [{"id": "kimi-k2.6", "tag": "kimi26", "latest": true}]
+      "cli": ["claude", "codex", "opencode"],
+      "models": [
+        {"id": "kimi-k3", "tag": "", "latest": true},
+        {"id": "kimi-k2.7-code", "tag": "k27", "latest": false},
+        {"id": "kimi-k2.6", "tag": "k26", "latest": false}
+      ]
     },
     {
       "id": "kimi",
-      "alias": "kimic",
+      "alias": "kc",
       "name": "Kimi for Coding（订阅）",
       "plan": "coding",
       "claude_url": "https://api.kimi.com/coding",
       "openai_url": "https://api.kimi.com/coding/v1",
       "key_env": "KIMI_CODING_KEY",
       "cli": ["claude", "codex", "opencode"],
-      "models": [
-        {"id": "k3", "tag": "k3", "latest": true},
-        {"id": "kimi-for-coding", "tag": "", "latest": false}
-      ]
+      "models": [{"id": "kimi-for-coding", "tag": "", "latest": true}]
     },
     {
       "id": "minimax",
