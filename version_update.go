@@ -17,8 +17,8 @@ import (
 
 // Release builds may override appVersion with:
 //
-//	go build -ldflags "-X main.appVersion=v2.2.0"
-var appVersion = "v2.2.0"
+//	go build -ldflags "-X main.appVersion=v2.2.1"
+var appVersion = "v2.2.1"
 
 const (
 	defaultReleaseAPIURL   = "https://api.github.com/repos/Neo-Isshin/MuxLM/releases/latest"
