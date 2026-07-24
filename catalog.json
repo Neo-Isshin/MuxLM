@@ -1,6 +1,6 @@
 {
-  "version": 1,
-  "revision": "2026-07-23.2",
+  "version": 2,
+  "revision": "2026-07-23.4",
   "retired_tags": {
     "doubao-code": "doubao/standard/doubao-seed-code-preview-latest",
     "k3": "kimi/coding/k3",
@@ -20,9 +20,9 @@
       "key_env": "GLM_KEY",
       "cli": ["claude", "codex", "opencode"],
       "models": [
-        {"id": "glm-5.2", "tag": "glm52", "latest": true},
-        {"id": "glm-5.1", "tag": "glm51", "latest": false},
-        {"id": "glm-4.7", "tag": "glm47", "latest": false}
+        {"id": "glm-5.2", "tag": "glm52", "source": "official", "latest": true},
+        {"id": "glm-5.1", "tag": "glm51", "source": "official", "latest": false},
+        {"id": "glm-4.7", "tag": "glm47", "source": "official", "latest": false}
       ]
     },
     {
@@ -34,7 +34,7 @@
       "openai_url": "https://open.bigmodel.cn/api/coding/paas/v4",
       "key_env": "GLM_CODING_KEY",
       "cli": ["claude", "codex", "opencode"],
-      "models": [{"id": "glm-5.2", "tag": "", "latest": true}]
+      "models": [{"id": "glm-5.2", "tag": "", "source": "official", "latest": true}]
     },
     {
       "id": "kimi",
@@ -46,9 +46,9 @@
       "key_env": "KIMI_KEY",
       "cli": ["claude", "codex", "opencode"],
       "models": [
-        {"id": "kimi-k3", "tag": "", "latest": true},
-        {"id": "kimi-k2.7-code", "tag": "k27", "latest": false},
-        {"id": "kimi-k2.6", "tag": "k26", "latest": false}
+        {"id": "kimi-k3", "tag": "", "short": "k3", "source": "official", "latest": true},
+        {"id": "kimi-k2.7-code", "tag": "k27", "source": "official", "latest": false},
+        {"id": "kimi-k2.6", "tag": "k26", "source": "official", "latest": false}
       ]
     },
     {
@@ -60,7 +60,7 @@
       "openai_url": "https://api.kimi.com/coding/v1",
       "key_env": "KIMI_CODING_KEY",
       "cli": ["claude", "codex", "opencode"],
-      "models": [{"id": "kimi-for-coding", "tag": "", "latest": true}]
+      "models": [{"id": "kimi-for-coding", "tag": "", "source": "official", "latest": true}]
     },
     {
       "id": "minimax",
@@ -74,8 +74,9 @@
       "key_env": "MINIMAX_KEY",
       "cli": ["claude", "codex", "opencode"],
       "models": [
-        {"id": "MiniMax-M2.7", "tag": "m27std", "latest": true},
-        {"id": "MiniMax-M2.7-highspeed", "tag": "m27", "latest": false}
+        {"id": "MiniMax-M3", "tag": "", "short": "m3", "source": "official", "latest": true},
+        {"id": "MiniMax-M2.7", "tag": "m27std", "source": "official", "latest": false},
+        {"id": "MiniMax-M2.7-highspeed", "tag": "m27", "source": "official", "latest": false}
       ]
     },
     {
@@ -88,7 +89,7 @@
       "key_env": "ARK_API_KEY",
       "cli": ["claude", "codex", "opencode"],
       "wire_api": "responses",
-      "models": [{"id": "ark-code-latest", "tag": "", "latest": true}]
+      "models": [{"id": "ark-code-latest", "tag": "", "source": "official", "latest": true}]
     },
     {
       "id": "nvidia",
@@ -98,7 +99,7 @@
       "openai_url": "https://integrate.api.nvidia.com/v1",
       "key_env": "NVIDIA_API_KEY",
       "cli": ["codex", "opencode"],
-      "models": [{"id": "openai/gpt-oss-120b", "tag": "nvgpt", "latest": true}]
+      "models": [{"id": "openai/gpt-oss-120b", "tag": "nvgpt", "source": "relay", "latest": true}]
     },
     {
       "id": "deepseek",
@@ -110,8 +111,8 @@
       "key_env": "DEEPSEEK_API_KEY",
       "cli": ["claude", "codex", "opencode"],
       "models": [
-        {"id": "deepseek-v4-flash", "tag": "dsv4f", "latest": true},
-        {"id": "deepseek-v4-pro", "tag": "dsv4p", "latest": false}
+        {"id": "deepseek-v4-flash", "tag": "dsv4f", "source": "official", "latest": false},
+        {"id": "deepseek-v4-pro", "tag": "dsv4p", "source": "official", "latest": true}
       ]
     },
     {
@@ -119,13 +120,16 @@
       "alias": "sf",
       "name": "SiliconFlow 硅基流动",
       "plan": "standard",
+      "claude_url": "https://api.siliconflow.cn",
       "openai_url": "https://api.siliconflow.cn/v1",
+      "claude_url_intl": "https://api.siliconflow.com",
       "openai_url_intl": "https://api.siliconflow.com/v1",
       "key_env": "SILICONFLOW_KEY",
-      "cli": ["codex", "opencode"],
+      "cli": ["claude", "codex", "opencode"],
       "models": [
-        {"id": "deepseek-ai/DeepSeek-V4-Flash", "tag": "sfv4f", "latest": true},
-        {"id": "deepseek-ai/DeepSeek-V4-Pro", "tag": "sfv4p", "latest": false}
+        {"id": "deepseek-ai/DeepSeek-V4-Flash", "tag": "sfv4f", "short": "dsv4f", "source": "relay", "latest": true},
+        {"id": "deepseek-ai/DeepSeek-V4-Pro", "tag": "sfv4p", "short": "dsv4p", "source": "relay", "latest": false},
+        {"id": "moonshotai/Kimi-K2.7-Code", "tag": "", "short": "k27", "source": "relay", "latest": false}
       ]
     },
     {
@@ -138,10 +142,10 @@
       "key_env": "MUXLM_PROVIDER_BAILIAN_KEY",
       "cli": ["claude", "codex", "opencode"],
       "models": [
-        {"id": "qwen3.7-plus", "tag": "q37", "latest": true},
-        {"id": "qwen3.7-max", "tag": "q37m", "latest": false},
-        {"id": "qwen3-coder-next", "tag": "qcn", "latest": false},
-        {"id": "qwen3-coder-plus", "tag": "qcp", "latest": false}
+        {"id": "qwen3.7-plus", "tag": "q37", "source": "official", "latest": true},
+        {"id": "qwen3.7-max", "tag": "q37m", "source": "official", "latest": false},
+        {"id": "qwen3-coder-next", "tag": "qcn", "source": "official", "latest": false},
+        {"id": "qwen3-coder-plus", "tag": "qcp", "source": "official", "latest": false}
       ]
     },
     {
@@ -154,16 +158,16 @@
       "key_env": "MUXLM_PROVIDER_BAILIAN_CODING_KEY",
       "cli": ["claude", "codex", "opencode"],
       "models": [
-        {"id": "qwen3.7-plus", "tag": "qc37", "latest": true},
-        {"id": "qwen3.6-plus", "tag": "qc36", "latest": false},
-        {"id": "kimi-k2.5", "tag": "qck25", "latest": false},
-        {"id": "glm-5", "tag": "qcglm5", "latest": false},
-        {"id": "MiniMax-M2.5", "tag": "qcm25", "latest": false},
-        {"id": "qwen3.5-plus", "tag": "qc35", "latest": false},
-        {"id": "qwen3-max-2026-01-23", "tag": "qc3m", "latest": false},
-        {"id": "qwen3-coder-next", "tag": "qccn", "latest": false},
-        {"id": "qwen3-coder-plus", "tag": "qccp", "latest": false},
-        {"id": "glm-4.7", "tag": "qcglm47", "latest": false}
+        {"id": "qwen3.7-plus", "tag": "qc37", "source": "official", "latest": true},
+        {"id": "qwen3.6-plus", "tag": "qc36", "source": "official", "latest": false},
+        {"id": "kimi-k2.5", "tag": "qck25", "source": "relay", "latest": false},
+        {"id": "glm-5", "tag": "qcglm5", "source": "relay", "latest": false},
+        {"id": "MiniMax-M2.5", "tag": "qcm25", "source": "relay", "latest": false},
+        {"id": "qwen3.5-plus", "tag": "qc35", "source": "official", "latest": false},
+        {"id": "qwen3-max-2026-01-23", "tag": "qc3m", "source": "official", "latest": false},
+        {"id": "qwen3-coder-next", "tag": "qccn", "source": "official", "latest": false},
+        {"id": "qwen3-coder-plus", "tag": "qccp", "source": "official", "latest": false},
+        {"id": "glm-4.7", "tag": "qcglm47", "source": "relay", "latest": false}
       ]
     },
     {
@@ -175,14 +179,14 @@
       "key_env": "MUXLM_PROVIDER_OPENROUTER_KEY",
       "cli": ["codex", "opencode"],
       "models": [
-        {"id": "anthropic/claude-sonnet-5", "tag": "ors5", "latest": true},
-        {"id": "anthropic/claude-opus-4.8", "tag": "oro48", "latest": false},
-        {"id": "anthropic/claude-sonnet-4.6", "tag": "ors46", "latest": false},
-        {"id": "openai/gpt-5.6-sol", "tag": "org56", "latest": false},
-        {"id": "qwen/qwen3-coder-next", "tag": "orqcn", "latest": false},
-        {"id": "z-ai/glm-5.2", "tag": "orglm52", "latest": false},
-        {"id": "moonshotai/kimi-k3", "tag": "ork3", "latest": false},
-        {"id": "minimax/minimax-m3", "tag": "orm3", "latest": false}
+        {"id": "anthropic/claude-sonnet-5", "tag": "ors5", "short": "s5", "source": "relay", "latest": true},
+        {"id": "anthropic/claude-opus-4.8", "tag": "oro48", "short": "o48", "source": "relay", "latest": false},
+        {"id": "anthropic/claude-sonnet-4.6", "tag": "ors46", "short": "s46", "source": "relay", "latest": false},
+        {"id": "openai/gpt-5.6-sol", "tag": "org56", "short": "g56", "source": "relay", "latest": false},
+        {"id": "qwen/qwen3-coder-next", "tag": "orqcn", "short": "qcn", "source": "relay", "latest": false},
+        {"id": "z-ai/glm-5.2", "tag": "orglm52", "short": "glm52", "source": "relay", "latest": false},
+        {"id": "moonshotai/kimi-k3", "tag": "ork3", "short": "k3", "source": "relay", "latest": false},
+        {"id": "minimax/minimax-m3", "tag": "orm3", "short": "m3", "source": "relay", "latest": false}
       ]
     }
   ]

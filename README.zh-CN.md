@@ -52,18 +52,28 @@ curl -fsSL https://raw.githubusercontent.com/Neo-Isshin/MuxLM/main/install.sh | 
 
 ## 快速开始
 
-选择一个入口命令，再加 provider 别名：
+直接使用模型短名时，MuxLM 只会选择模型厂商的官方来源。需要指定其他来源时，在模型短名前加来源短名：
 
 ```bash
+cld def                    # Claude Code 原生订阅与默认模型
+cdx def                    # Codex 原生账号与默认模型
+opc def                    # OpenCode 原生配置与默认模型
+cld k3                     # Claude Code + Kimi 官方 K3
+opc or k3                  # OpenCode + OpenRouter 提供的 Kimi K3
+cld sf k27                 # Claude Code + SiliconFlow 提供的 Kimi K2.7 Code
 cld k27                    # Claude Code + 按量计费 Kimi K2.7 Code
 cld kc                     # Claude Code + Kimi Coding Plan
 cld glm                    # Claude Code + 最新 GLM
 cld qc                     # Claude Code + 百炼 Coding Plan
 cdx q                      # Codex + 最新千问
 opc or                     # OpenCode + OpenRouter
-cdx m --intl               # Codex + MiniMax 海外线路
+cdx m --intl               # Codex + 最新 MiniMax M3 海外线路
 opc ds                     # OpenCode + 最新 DeepSeek
 ```
+
+`def` 不使用 MuxLM provider，也不读取 MuxLM 保存的 provider key；它会清除路由覆盖，让对应 CLI 使用自己的账号、配置和默认模型。因此 Claude Code 会回到原生订阅可用的 Opus、Fable 等模型，Codex 和 OpenCode 也会回到各自的登录与配置。需要传入原生 CLI 参数时放在 `--` 后，例如 `cld def -- --model opus`。
+
+同一个模型短名可以出现在多个来源中，但不会互相覆盖：`cld k3` 始终是 Kimi 官方，`<入口> or k3` 才会选择 OpenRouter。若指定来源当前没有该模型，MuxLM 会直接说明，而不会悄悄换成该来源的默认模型。原有的 `sfv4f`、`ork3` 等固定版本别名继续可用。
 
 最常用的三个选项：
 
@@ -96,7 +106,7 @@ cdx glm --dry-run          # 只预览配置，不实际启动
 
 每次正常启动都会检查 catalog。合法更新会原子写入，并可立即用于当前命令；检查失败时继续使用上次有效缓存或二进制内置 catalog。
 
-Catalog 更新并非只有“新增”：新 revision 可以增加 provider/model，也可以退役并删除旧模型或别名，以及移动 `latest`。永久 tombstone 会阻止已退役的版本别名被重新使用；严格校验还会拦截回滚、同 revision 篡改和 provider 信任字段的静默变化。
+Catalog 更新并非只有“新增”：新 revision 可以增加 provider/model，也可以退役并删除旧模型或别名，以及移动 `latest`。永久 tombstone 会阻止已退役的版本别名被重新使用；官方模型短名和“来源 + 模型短名”的目标也不能在后续更新中被悄悄替换。严格校验还会拦截回滚、同 revision 篡改和 provider 信任字段的静默变化。
 
 正常启动时发现新版程序只会提示，不会静默替换二进制。
 

@@ -13,6 +13,8 @@ import (
 type Model struct {
 	ID     string `json:"id"`
 	Tag    string `json:"tag"`
+	Short  string `json:"short,omitempty"`
+	Source string `json:"source,omitempty"`
 	Latest bool   `json:"latest"`
 }
 
@@ -215,8 +217,9 @@ type Resolved struct {
 	Model *Model
 }
 
-// buildIndex resolves provider aliases to latest models and version tags to
-// pinned models. Catalog entries win over colliding local custom aliases.
+// buildIndex resolves provider aliases to latest models, version tags to
+// pinned models, and official model short names to their direct provider.
+// Catalog entries win over colliding local custom aliases.
 func buildIndex() map[string]Resolved {
 	idx := make(map[string]Resolved)
 	retiredTags := retiredCatalogTags()
@@ -242,6 +245,9 @@ func buildIndex() map[string]Resolved {
 						idx[model.Tag] = Resolved{provider, model}
 					}
 				}
+				if !custom && model.Source == "official" && model.Short != "" {
+					idx[model.Short] = Resolved{provider, model}
+				}
 				if model.Latest {
 					latest = model
 				}
@@ -254,6 +260,42 @@ func buildIndex() map[string]Resolved {
 	add(catalogProviders(), false)
 	add(loadCustomProfiles(), true)
 	return idx
+}
+
+// resolveProviderModel resolves a model only inside the selected provider.
+// Scoped short names may be shared by many providers; immutable legacy tags and
+// exact model ids are also accepted for convenience.
+func resolveProviderModel(provider *Provider, selector string) (Resolved, bool) {
+	if provider == nil || selector == "" {
+		return Resolved{}, false
+	}
+	for i := range provider.Models {
+		model := &provider.Models[i]
+		if selector == model.Short || selector == model.Tag || selector == model.ID {
+			return Resolved{Prov: provider, Model: model}, true
+		}
+	}
+	return Resolved{}, false
+}
+
+// knownModelSelector reports whether a token is a published short name or
+// version tag anywhere in the active catalog. It is used to distinguish
+// "provider does not offer this model" from an ordinary prompt argument.
+func knownModelSelector(selector string) bool {
+	if selector == "" {
+		return false
+	}
+	all := append([]Provider{}, catalogProviders()...)
+	all = append(all, loadCustomProfiles()...)
+	for i := range all {
+		for j := range all[i].Models {
+			model := &all[i].Models[j]
+			if selector == model.Short || selector == model.Tag {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func retiredCatalogTags() map[string]bool {

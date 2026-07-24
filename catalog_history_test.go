@@ -35,7 +35,7 @@ func TestRetiredCatalogTagCannotBeReusedOrClaimedByCustomProvider(t *testing.T) 
 
 	reused := cloneCatalog(t, retired)
 	reused.Revision = "2099-01-01.2"
-	reused.Providers[0].Models = append(reused.Providers[0].Models, Model{ID: "different-model", Tag: "glm47"})
+	reused.Providers[0].Models = append(reused.Providers[0].Models, Model{ID: "different-model", Tag: "glm47", Source: "official"})
 	body, err = json.Marshal(reused)
 	if err != nil {
 		t.Fatal(err)
@@ -62,16 +62,20 @@ func TestRetiredCatalogTagCannotBeReusedOrClaimedByCustomProvider(t *testing.T) 
 	}
 }
 
-func TestEmbeddedRetiredTagSurvivesFreshInstall(t *testing.T) {
+func TestEmbeddedRetiredTagsAndOfficialM3ShortSurviveFreshInstall(t *testing.T) {
 	isolatedConfig(t)
 	if target := embeddedCatalog.RetiredTags["m3"]; target != "minimax/standard/MiniMax-M3" {
 		t.Fatalf("embedded m3 tombstone = %q", target)
 	}
+	officialM3, exists := buildIndex()["m3"]
+	if !exists || officialM3.Prov.Alias != "m" || officialM3.Model.ID != "MiniMax-M3" {
+		t.Fatalf("official m3 short name = %#v", officialM3)
+	}
 
 	reused := cloneCatalog(t, &embeddedCatalog)
 	reused.Revision = "2099-01-01.1"
-	delete(reused.RetiredTags, "m3")
-	reused.Providers[4].Models = append(reused.Providers[4].Models, Model{ID: "different-model", Tag: "m3"})
+	delete(reused.RetiredTags, "doubao-code")
+	reused.Providers[0].Models = append(reused.Providers[0].Models, Model{ID: "different-model", Tag: "doubao-code", Source: "official"})
 	if err := validateCatalog(reused); err != nil {
 		t.Fatal(err)
 	}
@@ -92,12 +96,31 @@ func TestEmbeddedRetiredTagSurvivesFreshInstall(t *testing.T) {
 	if err := atomicWriteJSON(customProviderPath(custom.ID), customProviderFile{Version: 1, Provider: custom}); err != nil {
 		t.Fatal(err)
 	}
-	if _, exists := buildIndex()["m3"]; exists {
-		t.Fatal("embedded retired tag unexpectedly activated a custom route")
+	resolved := buildIndex()["m3"]
+	if resolved.Prov == nil || resolved.Prov.Alias != "m" || resolved.Model.ID != "MiniMax-M3" {
+		t.Fatalf("custom provider claimed official m3 short: %#v", resolved)
 	}
 }
 
-func TestRetiredKimiAliasesCannotReturn(t *testing.T) {
+func TestCatalogStateV2MigrationPreservesVersionTagHistory(t *testing.T) {
+	isolatedConfig(t)
+	legacy := catalogUpdateState{
+		Version:     2,
+		TagTargets:  map[string]string{"oldtag": "provider/standard/model"},
+		RetiredTags: map[string]bool{"oldtag": true},
+	}
+	if err := atomicWriteJSON(updateStateFile(), legacy); err != nil {
+		t.Fatal(err)
+	}
+	migrated := loadCatalogUpdateState()
+	if migrated.Version != catalogStateVersion ||
+		migrated.TagTargets["oldtag"] != legacy.TagTargets["oldtag"] ||
+		!migrated.RetiredTags["oldtag"] {
+		t.Fatalf("v2 state history was lost: %#v", migrated)
+	}
+}
+
+func TestRetiredKimiVersionAliasesRemainTombstoned(t *testing.T) {
 	isolatedConfig(t)
 	want := map[string]string{
 		"k3":     "kimi/coding/k3",
@@ -108,6 +131,13 @@ func TestRetiredKimiAliasesCannotReturn(t *testing.T) {
 	for alias, target := range want {
 		if got := embeddedCatalog.RetiredTags[alias]; got != target {
 			t.Fatalf("%s tombstone = %q, want %q", alias, got, target)
+		}
+		if alias == "k3" {
+			resolved, exists := buildIndex()[alias]
+			if !exists || resolved.Prov.Alias != "k" || resolved.Model.ID != "kimi-k3" {
+				t.Fatalf("official k3 short name = %#v", resolved)
+			}
+			continue
 		}
 		if _, exists := buildIndex()[alias]; exists {
 			t.Fatalf("retired Kimi alias %q is active", alias)

@@ -10,7 +10,9 @@ import (
 const helpText = appName + ` — 快速切换 Claude Code / Codex / OpenCode 的 provider 与模型
 
 用法:
-  cdx|cld|opc <别名> [选项] [-- <底层 CLI 参数...>]
+  cdx|cld|opc def [选项] [-- <底层 CLI 参数...>]
+  cdx|cld|opc <模型短名> [选项] [-- <底层 CLI 参数...>]
+  cdx|cld|opc <来源短名> [模型短名] [选项] [-- <底层 CLI 参数...>]
 
 入口:
   cdx <别名>   使用 Codex
@@ -18,6 +20,7 @@ const helpText = appName + ` — 快速切换 Claude Code / Codex / OpenCode 的
   opc <别名>   使用 OpenCode
 
 命令:
+  <入口> def                  使用原生账号与默认模型
   <入口> list                 查看 provider / 模型别名
   <入口> doctor               检查模型列表、配置和依赖程序
   <入口> config               查看和管理 provider / key
@@ -38,6 +41,11 @@ const helpText = appName + ` — 快速切换 Claude Code / Codex / OpenCode 的
   -h, --help                  显示帮助
 
 示例:
+  cld def                     Claude Code 原生订阅与默认模型
+  cdx def                     Codex 原生账号与默认模型
+  opc def                     OpenCode 原生配置与默认模型
+  cld k3                      Claude Code + Kimi 官方 K3
+  cld sf k27                  Claude Code + SiliconFlow 的 Kimi K2.7
   cld glm                     Claude Code + GLM 最新模型
   cld qc                      Claude Code + 百炼 Coding Plan
   cdx q                       Codex + 千问最新模型
@@ -46,7 +54,9 @@ const helpText = appName + ` — 快速切换 Claude Code / Codex / OpenCode 的
   opc ds -m deepseek-v4-pro   OpenCode + 指定模型
   cld glm -- "fix the bug"    将 -- 后的参数原样传给 Claude Code
 
-简短别名始终使用最新模型；版本别名始终对应固定模型。
+def 不使用 MuxLM provider，直接回到对应 CLI 的原生账号、配置与默认模型。
+直接使用模型短名时走官方来源；指定来源后，只在该来源中选择模型。
+来源短名始终使用该来源的最新模型；原有版本别名仍对应固定模型。
 `
 
 func main() {
@@ -79,7 +89,9 @@ func main() {
 		return
 	}
 
-	checkUpdatesOnStartup()
+	if len(args) == 0 || args[0] != "def" {
+		checkUpdatesOnStartup()
+	}
 
 	if len(args) > 0 && (args[0] == "version" || args[0] == "--version") {
 		if len(args) != 1 {
@@ -153,6 +165,8 @@ func main() {
 	var alias, model string
 	skip, intl, dryRun := false, false, false
 	var passthrough []string
+	scopedCandidate := ""
+	scopedCandidateIndex := -1
 	noMore := false
 
 	for i := 0; i < len(args); i++ {
@@ -182,6 +196,10 @@ func main() {
 			if alias == "" {
 				alias = a
 			} else {
+				if scopedCandidate == "" {
+					scopedCandidate = a
+					scopedCandidateIndex = len(passthrough)
+				}
 				passthrough = append(passthrough, a)
 			}
 		}
@@ -203,10 +221,41 @@ func main() {
 		return
 	}
 
+	if alias == "def" {
+		if model != "" {
+			fail("def 不接受 --model；需要原生参数时请放在 -- 后")
+		}
+		if intl {
+			fail("def 使用原生账号，不接受 --intl")
+		}
+		if dryRun {
+			previewDefault(cli, skip, passthrough)
+			return
+		}
+		if err := launchDefault(cli, skip, passthrough); err != nil {
+			if ee, ok := err.(interface{ ExitCode() int }); ok {
+				os.Exit(ee.ExitCode())
+			}
+			fail(err.Error())
+		}
+		return
+	}
+
 	idx := buildIndex()
 	r, ok := idx[alias]
 	if !ok {
 		fail(fmt.Sprintf("未知别名: %s\n运行 `%s list` 查看可用别名", alias, prog))
+	}
+	if scopedCandidate != "" && r.Prov.Alias == alias {
+		if scoped, found := resolveProviderModel(r.Prov, scopedCandidate); found {
+			if model != "" {
+				fail("模型短名不能和 --model 同时使用")
+			}
+			r = scoped
+			passthrough = append(passthrough[:scopedCandidateIndex], passthrough[scopedCandidateIndex+1:]...)
+		} else if knownModelSelector(scopedCandidate) {
+			fail(fmt.Sprintf("%s 当前没有 %s", r.Prov.Name, scopedCandidate))
+		}
 	}
 	if !r.Prov.supports(cli) {
 		fail(fmt.Sprintf("%s 不支持 %s（端点协议限制，无代理）。\n支持: %s",
@@ -245,15 +294,15 @@ func main() {
 
 func printQuickStart(prog, cli string) {
 	fmt.Printf("%s：用指定 provider / model 启动 %s\n", prog, cli)
-	fmt.Printf("用法: %s <别名> [选项] [-- <底层 CLI 参数>]\n", prog)
-	fmt.Printf("示例: %s glm\n", prog)
+	fmt.Printf("用法: %s def，%s <模型短名>，或 %s <来源短名> [模型短名]\n", prog, prog, prog)
+	fmt.Printf("示例: %s def    %s k3    %s sf k27\n", prog, prog, prog)
 	fmt.Printf("可用别名: %s list    配置: %s config\n", prog, prog)
 	fmt.Printf("完整帮助: %s --help\n", prog)
 }
 
 func isReservedAlias(alias string) bool {
 	switch alias {
-	case "config", "add", "set-key", "remove", "update", "version", "doctor", "list", "ls", "help", "custom":
+	case "config", "add", "set-key", "remove", "update", "version", "doctor", "list", "ls", "help", "custom", "def":
 		return true
 	default:
 		return false
@@ -278,6 +327,7 @@ func printTable() {
 	fmt.Println()
 	fmt.Println("  " + pad("别名（版本）", 25) + pad("Provider", 29) + pad("默认模型", 36) + pad("入口", 13) + "intl")
 	fmt.Println("  " + strings.Repeat("-", 107))
+	fmt.Println("  " + pad("def", 25) + pad("原生账号 / 配置", 29) + pad("由对应 CLI 决定", 36) + pad("cld/cdx/opc", 13) + "—")
 	all := append([]Provider{}, catalogProviders()...)
 	all = append(all, loadCustomProfiles()...)
 	for i := range all {
@@ -301,7 +351,25 @@ func printTable() {
 		for _, continuation := range aliasLines[1:] {
 			fmt.Println("  " + pad(continuation, 25))
 		}
+		if shortcuts := modelShortcutExamples(p); len(shortcuts) > 0 {
+			fmt.Println("      可选: " + strings.Join(shortcuts, ", "))
+		}
 	}
+}
+
+func modelShortcutExamples(p *Provider) []string {
+	var shortcuts []string
+	for _, model := range p.Models {
+		if model.Short == "" {
+			continue
+		}
+		if model.Source == "official" {
+			shortcuts = append(shortcuts, model.Short)
+			continue
+		}
+		shortcuts = append(shortcuts, p.Alias+" "+model.Short)
+	}
+	return shortcuts
 }
 
 func wrapAliasCell(alias string, tags []string, width int) []string {

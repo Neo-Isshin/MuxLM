@@ -23,7 +23,7 @@ import (
 const (
 	defaultCatalogURL   = "https://raw.githubusercontent.com/Neo-Isshin/MuxLM/main/catalog.json"
 	maxCatalogBytes     = 2 << 20
-	catalogStateVersion = 2
+	catalogStateVersion = 3
 )
 
 type catalogUpdateState struct {
@@ -35,6 +35,7 @@ type catalogUpdateState struct {
 	SHA256        string            `json:"sha256,omitempty"`
 	CatalogDigest string            `json:"catalog_digest,omitempty"`
 	TagTargets    map[string]string `json:"tag_targets,omitempty"`
+	ShortTargets  map[string]string `json:"short_targets,omitempty"`
 	RetiredTags   map[string]bool   `json:"retired_tags,omitempty"`
 }
 
@@ -54,7 +55,7 @@ func catalogURL() string {
 }
 
 func validateCatalog(c *CatalogFile) error {
-	if c.Version != 1 {
+	if c.Version != 2 {
 		return fmt.Errorf("不支持的 catalog version: %d", c.Version)
 	}
 	if strings.TrimSpace(c.Revision) == "" {
@@ -70,6 +71,7 @@ func validateCatalog(c *CatalogFile) error {
 		return fmt.Errorf("catalog provider 数量超过 512")
 	}
 	names := map[string]bool{}
+	officialShorts := map[string]string{}
 	providerPlans := map[string]bool{}
 	keyEnvOwners := map[string]string{}
 	for i := range c.Providers {
@@ -149,9 +151,22 @@ func validateCatalog(c *CatalogFile) error {
 			return fmt.Errorf("%s 的模型数量超过 512", p.Alias)
 		}
 		latest := 0
+		modelIDs := map[string]bool{}
+		modelSelectors := map[string]string{}
 		for _, m := range p.Models {
 			if !validCatalogText(m.ID, 256) {
 				return fmt.Errorf("%s 含空 model id", p.Alias)
+			}
+			if modelIDs[m.ID] {
+				return fmt.Errorf("%s 含重复 model id: %s", p.Alias, m.ID)
+			}
+			modelIDs[m.ID] = true
+			if previous, exists := modelSelectors[m.ID]; exists && previous != m.ID {
+				return fmt.Errorf("%s 的模型选择名 %s 同时指向 %s 和 %s", p.Alias, m.ID, previous, m.ID)
+			}
+			modelSelectors[m.ID] = m.ID
+			if m.Source != "official" && m.Source != "relay" {
+				return fmt.Errorf("%s/%s 缺少有效来源", p.Alias, m.ID)
 			}
 			if m.Latest {
 				latest++
@@ -166,7 +181,27 @@ func validateCatalog(c *CatalogFile) error {
 				if names[m.Tag] {
 					return fmt.Errorf("重复模型别名: %s", m.Tag)
 				}
+				if previous, exists := modelSelectors[m.Tag]; exists && previous != m.ID {
+					return fmt.Errorf("%s 的模型选择名 %s 同时指向 %s 和 %s", p.Alias, m.Tag, previous, m.ID)
+				}
+				modelSelectors[m.Tag] = m.ID
 				names[m.Tag] = true
+			}
+			if m.Short != "" {
+				if !validCatalogID(m.Short, 64) || isReservedAlias(m.Short) {
+					return fmt.Errorf("%s 含非法模型短名: %q", p.Alias, m.Short)
+				}
+				if previous, exists := modelSelectors[m.Short]; exists && previous != m.ID {
+					return fmt.Errorf("%s 的模型选择名 %s 同时指向 %s 和 %s", p.Alias, m.Short, previous, m.ID)
+				}
+				modelSelectors[m.Short] = m.ID
+				if m.Source == "official" {
+					target := p.ID + "/" + p.planID() + "/" + m.ID
+					if previous, exists := officialShorts[m.Short]; exists && previous != target {
+						return fmt.Errorf("官方模型短名 %s 同时指向 %s 和 %s", m.Short, previous, target)
+					}
+					officialShorts[m.Short] = target
+				}
 			}
 		}
 		if latest != 1 {
@@ -179,6 +214,11 @@ func validateCatalog(c *CatalogFile) error {
 			if err := validateEndpoint(endpoint, false); err != nil {
 				return fmt.Errorf("%s: %w", p.Alias, err)
 			}
+		}
+	}
+	for short := range officialShorts {
+		if names[short] {
+			return fmt.Errorf("官方模型短名与已有别名冲突: %s", short)
 		}
 	}
 	for tag, target := range c.RetiredTags {
@@ -297,7 +337,17 @@ func updateHTTPClient(origin *url.URL) *http.Client {
 func loadCatalogUpdateState() catalogUpdateState {
 	var state catalogUpdateState
 	b, err := readPrivateFile(updateStateFile())
-	if err != nil || json.Unmarshal(b, &state) != nil || state.Version != catalogStateVersion {
+	if err != nil || json.Unmarshal(b, &state) != nil {
+		return catalogUpdateState{Version: catalogStateVersion}
+	}
+	// Version 2 already contains the immutable version-tag history. Preserve it
+	// while introducing scoped model-short history in version 3.
+	if state.Version == 2 {
+		state.Version = catalogStateVersion
+		state.ShortTargets = nil
+		return state
+	}
+	if state.Version != catalogStateVersion {
 		return catalogUpdateState{Version: catalogStateVersion}
 	}
 	return state
@@ -392,6 +442,28 @@ func catalogTagTrustIndex(c *CatalogFile) map[string]string {
 	return out
 }
 
+// catalogShortTrustIndex tracks both provider-scoped short names and the
+// unscoped official short namespace. A short may be shared by many relays, but
+// neither "sf k3" nor the official "k3" may later be redirected silently.
+func catalogShortTrustIndex(c *CatalogFile) map[string]string {
+	out := make(map[string]string)
+	for i := range c.Providers {
+		p := &c.Providers[i]
+		identity := p.ID + "/" + p.planID()
+		for _, model := range p.Models {
+			if model.Short == "" {
+				continue
+			}
+			target := identity + "/" + model.ID
+			out["provider/"+identity+"/"+model.Short] = target
+			if model.Source == "official" {
+				out["official/"+model.Short] = target
+			}
+		}
+	}
+	return out
+}
+
 func catalogRetiredTagTrustIndex(c *CatalogFile) map[string]string {
 	out := make(map[string]string, len(c.RetiredTags))
 	for tag, target := range c.RetiredTags {
@@ -417,6 +489,17 @@ func catalogTagHistory(state catalogUpdateState, current *CatalogFile) map[strin
 	return history
 }
 
+func catalogShortHistory(state catalogUpdateState, current *CatalogFile) map[string]string {
+	history := catalogShortTrustIndex(&embeddedCatalog)
+	for key, target := range state.ShortTargets {
+		history[key] = target
+	}
+	for key, target := range catalogShortTrustIndex(current) {
+		history[key] = target
+	}
+	return history
+}
+
 func validateCatalogTagHistory(state catalogUpdateState, current, next *CatalogFile) error {
 	history := catalogTagHistory(state, current)
 	for tag, target := range catalogRetiredTagTrustIndex(next) {
@@ -430,6 +513,23 @@ func validateCatalogTagHistory(state catalogUpdateState, current, next *CatalogF
 		}
 		if previous, exists := history[tag]; exists && previous != target {
 			return fmt.Errorf("版本别名 %s 不能重绑到另一模型；请使用新别名", tag)
+		}
+	}
+	return nil
+}
+
+func validateCatalogShortHistory(state catalogUpdateState, current, next *CatalogFile) error {
+	history := catalogShortHistory(state, current)
+	for key, target := range catalogShortTrustIndex(next) {
+		previous, exists := history[key]
+		if exists && previous != target {
+			return fmt.Errorf("模型短名 %s 不能改指向；请使用新短名", strings.TrimPrefix(key, "official/"))
+		}
+		if !exists && strings.HasPrefix(key, "official/") {
+			short := strings.TrimPrefix(key, "official/")
+			if state.RetiredTags[short] || current.RetiredTags[short] != "" || next.RetiredTags[short] != "" {
+				return fmt.Errorf("已退役版本别名 %s 不能作为新的官方模型短名", short)
+			}
 		}
 	}
 	return nil
@@ -463,6 +563,14 @@ func advanceCatalogTagState(state catalogUpdateState, current, next *CatalogFile
 	return history, retired
 }
 
+func advanceCatalogShortState(state catalogUpdateState, current, next *CatalogFile) map[string]string {
+	history := catalogShortHistory(state, current)
+	for key, target := range catalogShortTrustIndex(next) {
+		history[key] = target
+	}
+	return history
+}
+
 // Catalog auto-updates may move models/latest aliases, but they cannot silently
 // redirect an existing provider key. Endpoint/key identity changes require a
 // reviewed binary release with a new embedded seed.
@@ -481,6 +589,8 @@ func validateCatalogEvolution(current, next *CatalogFile) error {
 	}
 	currentTags := catalogTagTrustIndex(current)
 	nextTags := catalogTagTrustIndex(next)
+	currentShorts := catalogShortTrustIndex(current)
+	nextShorts := catalogShortTrustIndex(next)
 	currentRetired := catalogRetiredTagTrustIndex(current)
 	nextRetired := catalogRetiredTagTrustIndex(next)
 	for tag, target := range currentRetired {
@@ -499,6 +609,23 @@ func validateCatalogEvolution(current, next *CatalogFile) error {
 		}
 		if retiredTarget, exists := nextRetired[tag]; !exists || retiredTarget != target {
 			return fmt.Errorf("删除模型别名 %s 时必须保留其 retired_tags tombstone", tag)
+		}
+	}
+	for key, target := range currentShorts {
+		if nextTarget, exists := nextShorts[key]; exists && nextTarget != target {
+			return fmt.Errorf("模型短名 %s 不能改指向；请使用新短名", strings.TrimPrefix(key, "official/"))
+		}
+	}
+	for key := range nextShorts {
+		if !strings.HasPrefix(key, "official/") {
+			continue
+		}
+		if _, exists := currentShorts[key]; exists {
+			continue
+		}
+		short := strings.TrimPrefix(key, "official/")
+		if currentRetired[short] != "" || nextRetired[short] != "" {
+			return fmt.Errorf("已退役版本别名 %s 不能作为新的官方模型短名", short)
 		}
 	}
 	return nil
@@ -678,6 +805,9 @@ func checkCatalogUpdateLocked(ctx context.Context, conditional bool) (catalogUpd
 	if err := validateCatalogTagHistory(state, baseline, c); err != nil {
 		return catalogUpdateResult{}, err
 	}
+	if err := validateCatalogShortHistory(state, baseline, c); err != nil {
+		return catalogUpdateResult{}, err
+	}
 	sum := sha256.Sum256(b)
 	sumHex := hex.EncodeToString(sum[:])
 	if c.Revision == embeddedCatalog.Revision && !reflect.DeepEqual(&embeddedCatalog, c) {
@@ -692,6 +822,7 @@ func checkCatalogUpdateLocked(ctx context.Context, conditional bool) (catalogUpd
 	writeCache := cacheErr != nil || cache.Revision != c.Revision
 	updated := compareCatalogRevision(c.Revision, activeCatalogRevision()) > 0 || cacheErr == nil && cache.Revision != c.Revision
 	tagTargets, retiredTags := advanceCatalogTagState(state, baseline, c)
+	shortTargets := advanceCatalogShortState(state, baseline, c)
 	newState := catalogUpdateState{
 		Version:       catalogStateVersion,
 		URL:           raw,
@@ -701,6 +832,7 @@ func checkCatalogUpdateLocked(ctx context.Context, conditional bool) (catalogUpd
 		SHA256:        sumHex,
 		CatalogDigest: catalogDigest(c),
 		TagTargets:    tagTargets,
+		ShortTargets:  shortTargets,
 		RetiredTags:   retiredTags,
 	}
 	if err := atomicWriteJSON(updateStateFile(), &newState); err != nil {

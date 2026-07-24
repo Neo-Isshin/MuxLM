@@ -77,13 +77,13 @@ if env PATH="$EMPTY_PATH" HOME="$TEST_ROOT/empty-home" /bin/bash "$INSTALLER" >"
 	echo "installer ignored missing dependencies" >&2
 	exit 1
 fi
-grep -q '还缺这些工具' "$EMPTY_PATH/missing.log"
+grep -q 'Missing required tools' "$EMPTY_PATH/missing.log"
 grep -q -- '--install-deps' "$EMPTY_PATH/missing.log"
 if env PATH="$EMPTY_PATH" HOME="$TEST_ROOT/empty-home" /bin/bash "$INSTALLER" --install-deps >"$EMPTY_PATH/noninteractive.log" 2>&1; then
 	echo "installer changed dependencies without interactive confirmation" >&2
 	exit 1
 fi
-grep -q '这里无法确认，已停止；系统没有改动' "$EMPTY_PATH/noninteractive.log"
+grep -q 'Cannot ask for confirmation here; stopped without making changes' "$EMPTY_PATH/noninteractive.log"
 
 REPO=ci/MuxLM
 TAG=v0.0.0-smoke
@@ -141,12 +141,24 @@ assert_no_installer_temps() {
 
 INSTALL_DIR="$TEST_ROOT/bin"
 INSTALL_LOG="$TEST_ROOT/install.log"
-run_installer "$INSTALL_DIR" "$INSTALL_LOG"
+DETECTED_TOOL_DIR="$TEST_ROOT/detected-tools"
+mkdir -p "$DETECTED_TOOL_DIR"
+for tool in claude codex opencode; do
+	printf '#!/bin/sh\nexit 0\n' > "$DETECTED_TOOL_DIR/$tool"
+	chmod 755 "$DETECTED_TOOL_DIR/$tool"
+done
+run_installer "$INSTALL_DIR" "$INSTALL_LOG" PATH="$DETECTED_TOOL_DIR:$PATH"
 assert_same_file "$SOURCE_ASSET" "$INSTALL_DIR/muxlm"
 assert_links "$INSTALL_DIR"
 [ "$(cat "$INSTALL_DIR/.muxlm-install.sha256")" = "$(sha256_file "$SOURCE_ASSET")" ]
 [ "$(stat -c '%a' "$INSTALL_DIR/muxlm")" = 755 ]
 [ "$(stat -c '%a' "$INSTALL_DIR/.muxlm-install.sha256")" = 600 ]
+grep -q 'Detected tools:' "$INSTALL_LOG"
+grep -q "Claude Code.*$DETECTED_TOOL_DIR/claude" "$INSTALL_LOG"
+grep -q "Codex.*$DETECTED_TOOL_DIR/codex" "$INSTALL_LOG"
+grep -q "OpenCode.*$DETECTED_TOOL_DIR/opencode" "$INSTALL_LOG"
+grep -q "muxlm.*$INSTALL_DIR/muxlm" "$INSTALL_LOG"
+grep -q "cld.*$INSTALL_DIR/cld" "$INSTALL_LOG"
 HOME="$TEST_ROOT/runtime-home" "$INSTALL_DIR/muxlm" doctor >/dev/null
 
 # A second run must recognize its own marker and safely replace the managed copy.
@@ -160,7 +172,7 @@ if run_installer "$INSTALL_DIR" "$TEST_ROOT/bad-checksum.log"; then
 	echo "installer accepted an asset with a bad checksum" >&2
 	exit 1
 fi
-grep -q '下载文件检查失败' "$TEST_ROOT/bad-checksum.log"
+grep -q 'Download verification failed' "$TEST_ROOT/bad-checksum.log"
 assert_same_file "$SOURCE_ASSET" "$INSTALL_DIR/muxlm"
 assert_no_installer_temps "$INSTALL_DIR"
 cp "$SOURCE_ASSET" "$RELEASE_DIR/$ASSET"
@@ -170,7 +182,7 @@ rm "$RELEASE_DIR/$ASSET"
 LEGACY_DIR="$TEST_ROOT/legacy-bin"
 run_installer "$LEGACY_DIR" "$TEST_ROOT/legacy.log"
 assert_same_file "$SOURCE_LEGACY_ASSET" "$LEGACY_DIR/muxlm"
-grep -q '主下载文件暂不可用，改用' "$TEST_ROOT/legacy.log"
+grep -q 'Primary release asset unavailable; trying' "$TEST_ROOT/legacy.log"
 assert_links "$LEGACY_DIR"
 cp "$SOURCE_ASSET" "$RELEASE_DIR/$ASSET"
 

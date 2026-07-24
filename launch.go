@@ -11,6 +11,33 @@ import (
 	"syscall"
 )
 
+// launchDefault starts the selected CLI with its normal account and config.
+// MuxLM routing variables are scrubbed so a previous provider override cannot
+// shadow the CLI's own login state or default model.
+func launchDefault(cli string, skip bool, pass []string) error {
+	args := defaultLaunchArgs(cli, skip, pass)
+	// #nosec G204 G702 -- cli is one of three fixed executable names and pass
+	// contains arguments explicitly supplied by the user.
+	cmd := exec.Command(cli, args...)
+	cmd.Env = childEnv(nil)
+	return run(cmd)
+}
+
+func defaultLaunchArgs(cli string, skip bool, pass []string) []string {
+	var args []string
+	if skip {
+		switch cli {
+		case "claude":
+			args = append(args, "--dangerously-skip-permissions")
+		case "codex":
+			args = append(args, "--dangerously-bypass-approvals-and-sandbox")
+		case "opencode":
+			args = append(args, "--auto")
+		}
+	}
+	return append(args, pass...)
+}
+
 // ---- claude: inline env + exec（不写全局 settings.json）----
 func launchClaude(p *Provider, model string, skip, intl bool, pass []string) error {
 	claudeModel, _ := claudeLaunchSettings(p, model, "", "")
@@ -40,16 +67,14 @@ func claudeLaunchSettings(p *Provider, model, url, key string) (string, map[stri
 		"ANTHROPIC_BASE_URL":   url,
 		"ANTHROPIC_AUTH_TOKEN": key,
 	}
-	if p.providerID() != "kimi" || (p.planID() != "standard" && p.planID() != "coding") {
-		return claudeModel, env
-	}
 
-	// Moonshot exposes a Claude Code compatibility name for K3. Setting every
-	// model slot also keeps background summaries and subagents on the selected
-	// Kimi model instead of falling back to an Anthropic model name.
-	if p.planID() == "standard" && model == "kimi-k3" {
+	// Moonshot exposes a Claude Code compatibility name for K3.
+	if p.providerID() == "kimi" && p.planID() == "standard" && model == "kimi-k3" {
 		claudeModel = "kimi-k3[1m]"
 	}
+	// Keep background summaries and subagents on the selected provider model.
+	// This is required for relays too: their catalog may not contain Anthropic's
+	// default Haiku/Sonnet/Opus ids.
 	for _, name := range []string{
 		"ANTHROPIC_MODEL",
 		"ANTHROPIC_DEFAULT_OPUS_MODEL",
@@ -59,6 +84,9 @@ func claudeLaunchSettings(p *Provider, model, url, key string) (string, map[stri
 		"CLAUDE_CODE_SUBAGENT_MODEL",
 	} {
 		env[name] = claudeModel
+	}
+	if p.providerID() != "kimi" || (p.planID() != "standard" && p.planID() != "coding") {
+		return claudeModel, env
 	}
 	env["ENABLE_TOOL_SEARCH"] = "false"
 	if strings.HasPrefix(claudeModel, "kimi-k3") {
@@ -285,6 +313,16 @@ func preview(cli string, p *Provider, model string, skip, intl bool, pass []stri
 	}
 }
 
+func previewDefault(cli string, skip bool, pass []string) {
+	fmt.Printf("DRY RUN  %s → 默认账号 / 默认模型\n", cli)
+	args := joinArgs(defaultLaunchArgs(cli, skip, pass))
+	if args == "" {
+		fmt.Printf("  run  %s\n", cli)
+		return
+	}
+	fmt.Printf("  run  %s %s\n", cli, args)
+}
+
 func openCodeNPM(p *Provider) string {
 	if p.openaiURL(false) != "" && p.wireAPI() == "responses" {
 		return "@ai-sdk/openai"
@@ -336,7 +374,10 @@ func childEnv(extra map[string]string) []string {
 		"ANTHROPIC_DEFAULT_FABLE_MODEL": true, "ANTHROPIC_DEFAULT_FABLE_MODEL_NAME": true,
 		"CLAUDE_CODE_SUBAGENT_MODEL": true, "CLAUDE_CODE_AUTO_COMPACT_WINDOW": true,
 		"CLAUDE_CODE_EFFORT_LEVEL": true, "ENABLE_TOOL_SEARCH": true,
-		"OPENAI_API_KEY": true, "CODEX_HOME": true, "OPENCODE_CONFIG_DIR": true,
+		"CLAUDE_CONFIG_DIR": true, "CLAUDE_CODE_USE_BEDROCK": true,
+		"CLAUDE_CODE_USE_VERTEX": true, "CLAUDE_CODE_USE_FOUNDRY": true,
+		"OPENAI_API_KEY": true, "OPENAI_BASE_URL": true, "OPENAI_API_BASE": true,
+		"CODEX_HOME": true, "OPENCODE_CONFIG_DIR": true,
 	}
 	for name := range extra {
 		blocked[name] = true

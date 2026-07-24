@@ -31,7 +31,7 @@ func isolatedConfig(t *testing.T) string {
 func TestModelAliasesShareProviderKeys(t *testing.T) {
 	isolatedConfig(t)
 	idx := buildIndex()
-	for _, alias := range []string{"m", "m27std", "m27"} {
+	for _, alias := range []string{"m", "m3", "m27std", "m27"} {
 		if idx[alias].Prov.providerID() != "minimax" {
 			t.Fatalf("%s provider id = %q", alias, idx[alias].Prov.providerID())
 		}
@@ -44,10 +44,46 @@ func TestModelAliasesShareProviderKeys(t *testing.T) {
 	if err := saveProviderKeys("minimax", []KeyRecord{rec}); err != nil {
 		t.Fatal(err)
 	}
-	for _, alias := range []string{"m27std", "m27"} {
+	for _, alias := range []string{"m3", "m27std", "m27"} {
 		cs, err := keyCandidates(idx[alias].Prov, "cn")
 		if err != nil || len(cs) != 1 || cs[0].Name != "key1" {
 			t.Fatalf("%s candidates = %#v, %v", alias, cs, err)
+		}
+	}
+}
+
+func TestEveryProviderAliasUsesItsLatestModel(t *testing.T) {
+	isolatedConfig(t)
+	idx := buildIndex()
+	for providerIndex := range embeddedCatalog.Providers {
+		provider := &embeddedCatalog.Providers[providerIndex]
+		var latest *Model
+		for modelIndex := range provider.Models {
+			if provider.Models[modelIndex].Latest {
+				if latest != nil {
+					t.Fatalf("%s has more than one latest model", provider.Alias)
+				}
+				latest = &provider.Models[modelIndex]
+			}
+		}
+		if latest == nil {
+			t.Fatalf("%s has no latest model", provider.Alias)
+		}
+		resolved, exists := idx[provider.Alias]
+		if !exists || resolved.Prov.Alias != provider.Alias || resolved.Model.ID != latest.ID {
+			t.Fatalf("%s = %#v, want latest %s", provider.Alias, resolved, latest.ID)
+		}
+	}
+
+	for alias, modelID := range map[string]string{
+		"glm": "glm-5.2",
+		"k":   "kimi-k3",
+		"m":   "MiniMax-M3",
+		"ds":  "deepseek-v4-pro",
+		"q":   "qwen3.7-plus",
+	} {
+		if got := idx[alias].Model.ID; got != modelID {
+			t.Fatalf("%s default = %q, want %q", alias, got, modelID)
 		}
 	}
 }
@@ -184,10 +220,14 @@ func TestKimiAliasesSeparateAPIAndCodingPlans(t *testing.T) {
 		t.Fatalf("Kimi Coding Claude settings = %q %#v", kcModel, kcEnv)
 	}
 
-	for _, retired := range []string{"k3", "kimi", "kimic", "kimi26"} {
+	for _, retired := range []string{"kimi", "kimic", "kimi26"} {
 		if _, exists := idx[retired]; exists {
 			t.Fatalf("retired Kimi alias %q is still active", retired)
 		}
+	}
+	k3 := idx["k3"]
+	if k3.Prov.Alias != "k" || k3.Model.ID != "kimi-k3" || k3.Model.Source != "official" {
+		t.Fatalf("official k3 short name = %#v", k3)
 	}
 
 	api := idx["k"].Prov
@@ -205,6 +245,55 @@ func TestKimiAliasesSeparateAPIAndCodingPlans(t *testing.T) {
 	k27Model, k27Env := claudeLaunchSettings(api, "kimi-k2.7-code", api.ClaudeURL, "secret")
 	if k27Model != "kimi-k2.7-code" || k27Env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] != "262144" {
 		t.Fatalf("Kimi K2.7 Claude settings = %q %#v", k27Model, k27Env)
+	}
+}
+
+func TestOfficialShortNamesAndScopedRelayModels(t *testing.T) {
+	isolatedConfig(t)
+	idx := buildIndex()
+
+	official := idx["k3"]
+	if official.Prov.Alias != "k" || official.Model.ID != "kimi-k3" {
+		t.Fatalf("k3 did not use Kimi official: %#v", official)
+	}
+	if minimax := idx["m3"]; minimax.Prov.Alias != "m" || minimax.Model.ID != "MiniMax-M3" {
+		t.Fatalf("m3 did not use MiniMax official: %#v", minimax)
+	}
+	if global := idx["k27"]; global.Prov.Alias != "k" || global.Model.ID != "kimi-k2.7-code" {
+		t.Fatalf("k27 did not use Kimi official: %#v", global)
+	}
+
+	siliconflow := idx["sf"].Prov
+	hosted, ok := resolveProviderModel(siliconflow, "k27")
+	if !ok || hosted.Prov.Alias != "sf" || hosted.Model.ID != "moonshotai/Kimi-K2.7-Code" {
+		t.Fatalf("sf k27 = %#v, %v", hosted, ok)
+	}
+	if _, ok := resolveProviderModel(siliconflow, "k3"); ok {
+		t.Fatal("sf k3 resolved even though SiliconFlow does not currently publish K3")
+	}
+	if !knownModelSelector("k3") {
+		t.Fatal("official k3 was not recognized as a model selector")
+	}
+	if !siliconflow.supports("claude") || siliconflow.ClaudeURL != "https://api.siliconflow.cn" {
+		t.Fatalf("SiliconFlow Claude route = %#v", siliconflow)
+	}
+	_, relayEnv := claudeLaunchSettings(siliconflow, hosted.Model.ID, siliconflow.ClaudeURL, "secret")
+	if relayEnv["ANTHROPIC_DEFAULT_HAIKU_MODEL"] != hosted.Model.ID ||
+		relayEnv["ANTHROPIC_DEFAULT_SONNET_MODEL"] != hosted.Model.ID {
+		t.Fatalf("relay Claude model slots = %#v", relayEnv)
+	}
+
+	openrouter := idx["or"].Prov
+	routed, ok := resolveProviderModel(openrouter, "k3")
+	if !ok || routed.Model.ID != "moonshotai/kimi-k3" {
+		t.Fatalf("or k3 = %#v, %v", routed, ok)
+	}
+	relayM3, ok := resolveProviderModel(openrouter, "m3")
+	if !ok || relayM3.Model.ID != "minimax/minimax-m3" {
+		t.Fatalf("or m3 = %#v, %v", relayM3, ok)
+	}
+	if got := strings.Join(modelShortcutExamples(siliconflow), ","); !strings.Contains(got, "sf k27") {
+		t.Fatalf("SiliconFlow shortcuts = %q", got)
 	}
 }
 
@@ -506,6 +595,95 @@ func TestLaunchClaudeAndOpencode(t *testing.T) {
 	args, err := os.ReadFile(captureOpenArgs)
 	if err != nil || !strings.Contains(string(args), "--auto") || strings.Contains(string(args), "--force") {
 		t.Fatalf("opencode args=%q err=%v", args, err)
+	}
+}
+
+func TestDefaultRouteUsesNativeCLIStateAndScrubsProviderOverrides(t *testing.T) {
+	root := isolatedConfig(t)
+	bin := filepath.Join(root, "bin")
+	captureDir := filepath.Join(root, "capture")
+	if err := os.Mkdir(bin, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(captureDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	script := `#!/bin/sh
+name=${0##*/}
+env | sort > "$CAPTURE_DIR/$name.env"
+printf '%s' "$*" > "$CAPTURE_DIR/$name.args"
+`
+	for _, cli := range []string{"claude", "codex", "opencode"} {
+		if err := os.WriteFile(filepath.Join(bin, cli), []byte(script), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("CAPTURE_DIR", captureDir)
+	t.Setenv("HOME", filepath.Join(root, "native-home"))
+	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "native-oauth")
+	t.Setenv("ANTHROPIC_BASE_URL", "https://relay.example")
+	t.Setenv("ANTHROPIC_MODEL", "relay-model")
+	t.Setenv("ANTHROPIC_API_KEY", "anthropic-secret")
+	t.Setenv("OPENAI_API_KEY", "openai-secret")
+	t.Setenv("OPENAI_BASE_URL", "https://openai-relay.example")
+	t.Setenv("CLAUDE_CONFIG_DIR", filepath.Join(root, "relay-claude"))
+	t.Setenv("CLAUDE_CODE_USE_BEDROCK", "1")
+	t.Setenv("CODEX_HOME", filepath.Join(root, "relay-codex"))
+	t.Setenv("OPENCODE_CONFIG_DIR", filepath.Join(root, "relay-opencode"))
+	t.Setenv("GLM_KEY", "glm-secret")
+
+	for cli, wantArgs := range map[string]string{
+		"claude":   "--dangerously-skip-permissions hello world",
+		"codex":    "--dangerously-bypass-approvals-and-sandbox hello world",
+		"opencode": "--auto hello world",
+	} {
+		if err := launchDefault(cli, true, []string{"hello", "world"}); err != nil {
+			t.Fatalf("%s default launch: %v", cli, err)
+		}
+		args, err := os.ReadFile(filepath.Join(captureDir, cli+".args"))
+		if err != nil || string(args) != wantArgs {
+			t.Fatalf("%s default args = %q, %v", cli, args, err)
+		}
+		env, err := os.ReadFile(filepath.Join(captureDir, cli+".env"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, blocked := range []string{
+			"ANTHROPIC_BASE_URL=", "ANTHROPIC_MODEL=", "ANTHROPIC_API_KEY=",
+			"OPENAI_API_KEY=", "OPENAI_BASE_URL=", "CLAUDE_CONFIG_DIR=",
+			"CLAUDE_CODE_USE_BEDROCK=", "CODEX_HOME=", "OPENCODE_CONFIG_DIR=", "GLM_KEY=",
+		} {
+			if strings.Contains(string(env), blocked) {
+				t.Fatalf("%s default launch inherited %s", cli, blocked)
+			}
+		}
+		for _, retained := range []string{"HOME=" + filepath.Join(root, "native-home"), "CLAUDE_CODE_OAUTH_TOKEN=native-oauth"} {
+			if !strings.Contains(string(env), retained) {
+				t.Fatalf("%s default launch lost native login state %s", cli, retained)
+			}
+		}
+	}
+
+	previewOutput := captureStdout(t, func() {
+		previewDefault("claude", false, nil)
+		previewDefault("codex", true, []string{"resume"})
+	})
+	for _, want := range []string{
+		"claude → 默认账号 / 默认模型",
+		"run  claude\n",
+		"run  codex --dangerously-bypass-approvals-and-sandbox resume",
+	} {
+		if !strings.Contains(previewOutput, want) {
+			t.Fatalf("default preview missing %q:\n%s", want, previewOutput)
+		}
+	}
+	if !isReservedAlias("def") || !strings.Contains(helpText, "cld def") {
+		t.Fatal("def is not reserved and discoverable")
+	}
+	listOutput := captureStdout(t, printTable)
+	if !strings.Contains(listOutput, "def") || !strings.Contains(listOutput, "原生账号 / 配置") {
+		t.Fatalf("list does not show def:\n%s", listOutput)
 	}
 }
 
@@ -813,7 +991,7 @@ func TestCatalogSchemaProtectsSecretNamespaces(t *testing.T) {
 func TestCatalogEvolutionPinsTrustFieldsAndVersionAliases(t *testing.T) {
 	modelsOnly := cloneCatalog(t, &embeddedCatalog)
 	modelsOnly.Revision = "2026-07-19.1"
-	modelsOnly.Providers[0].Models = append(modelsOnly.Providers[0].Models, Model{ID: "glm-next", Tag: "glmnext"})
+	modelsOnly.Providers[0].Models = append(modelsOnly.Providers[0].Models, Model{ID: "glm-next", Tag: "glmnext", Source: "official"})
 	modelsOnly.Providers[0].Models[0].Latest = false
 	modelsOnly.Providers[0].Models[len(modelsOnly.Providers[0].Models)-1].Latest = true
 	if err := validateCatalog(modelsOnly); err != nil {
@@ -841,6 +1019,45 @@ func TestCatalogEvolutionPinsTrustFieldsAndVersionAliases(t *testing.T) {
 	tagChange.Providers[0].Models[0].ID = "different-model"
 	if err := validateCatalogEvolution(&embeddedCatalog, tagChange); err == nil {
 		t.Fatal("pinned version alias was rebound")
+	}
+
+	shortChange := cloneCatalog(t, &embeddedCatalog)
+	for providerIndex := range shortChange.Providers {
+		if shortChange.Providers[providerIndex].Alias != "sf" {
+			continue
+		}
+		for modelIndex := range shortChange.Providers[providerIndex].Models {
+			if shortChange.Providers[providerIndex].Models[modelIndex].Short == "k27" {
+				shortChange.Providers[providerIndex].Models[modelIndex].ID = "different-kimi"
+			}
+		}
+	}
+	if err := validateCatalog(shortChange); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateCatalogEvolution(&embeddedCatalog, shortChange); err == nil || !strings.Contains(err.Error(), "短名") {
+		t.Fatalf("scoped model short was rebound: %v", err)
+	}
+
+	duplicateOfficial := cloneCatalog(t, &embeddedCatalog)
+	duplicateOfficial.Providers[0].Models[0].Short = "k3"
+	if err := validateCatalog(duplicateOfficial); err == nil || !strings.Contains(err.Error(), "官方模型短名") {
+		t.Fatalf("duplicate official short was accepted: %v", err)
+	}
+
+	ambiguousSelector := cloneCatalog(t, &embeddedCatalog)
+	ambiguousSelector.Providers[0].Models[0].Tag = ambiguousSelector.Providers[0].Models[1].ID
+	if err := validateCatalog(ambiguousSelector); err == nil || !strings.Contains(err.Error(), "模型选择名") {
+		t.Fatalf("ambiguous provider-scoped selector was accepted: %v", err)
+	}
+
+	reusedRetired := cloneCatalog(t, &embeddedCatalog)
+	reusedRetired.Providers[0].Models[0].Short = "kimic"
+	if err := validateCatalog(reusedRetired); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateCatalogEvolution(&embeddedCatalog, reusedRetired); err == nil || !strings.Contains(err.Error(), "已退役") {
+		t.Fatalf("retired tag became a new official short: %v", err)
 	}
 }
 

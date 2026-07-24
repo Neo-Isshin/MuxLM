@@ -53,18 +53,28 @@ The shared management commands—such as `list`, `doctor`, `config`, and `update
 
 ## Quick start
 
-Choose an entry command and a provider alias:
+Using a model short name by itself always selects the model publisher's official route. Prefix it with a provider alias when you want another source:
 
 ```bash
+cld def                    # Claude Code's own subscription and default model
+cdx def                    # Codex's own account and default model
+opc def                    # OpenCode's own config and default model
+cld k3                     # Claude Code + Kimi K3 from Kimi
+opc or k3                  # OpenCode + Kimi K3 through OpenRouter
+cld sf k27                 # Claude Code + Kimi K2.7 Code through SiliconFlow
 cld k27                    # Claude Code + pay-as-you-go Kimi K2.7 Code
 cld kc                     # Claude Code + Kimi Coding Plan
 cld glm                    # Claude Code + latest GLM
 cld qc                     # Claude Code + Bailian Coding Plan
 cdx q                      # Codex + latest Qwen
 opc or                     # OpenCode + OpenRouter
-cdx m --intl               # Codex + MiniMax international route
+cdx m --intl               # Codex + latest MiniMax M3 on the international route
 opc ds                     # OpenCode + latest DeepSeek
 ```
+
+`def` does not use a MuxLM provider or stored provider key. It removes MuxLM routing overrides and lets the selected CLI use its normal account, configuration, and default model. Claude Code therefore returns to the models available through its own subscription, while Codex and OpenCode return to their native login/configuration. Put native CLI arguments after `--`, for example `cld def -- --model opus`.
+
+The same model short name may appear under multiple providers without colliding: `cld k3` always means the official Kimi route, while `<entry> or k3` selects OpenRouter. If the selected provider does not currently offer that model, MuxLM says so instead of silently launching its default model. Existing pinned aliases such as `sfv4f` and `ork3` remain available.
 
 The most useful options are:
 
@@ -97,7 +107,7 @@ cdx glm --dry-run          # Preview configuration without launching
 
 MuxLM checks the catalog on every normal startup. A valid update is stored atomically and can take effect immediately. If the check fails, MuxLM keeps using the last valid cache or the embedded catalog.
 
-Updates are not limited to additions: a catalog revision may add providers/models, retire and remove old models or aliases, and move `latest`. Permanent tombstones prevent retired version aliases from being reused. Strict validation also blocks rollback, modified revisions, and silent changes to provider trust fields.
+Updates are not limited to additions: a catalog revision may add providers/models, retire and remove old models or aliases, and move `latest`. Permanent tombstones prevent retired version aliases from being reused. Official model short names and provider-scoped short names cannot be silently redirected by a later update. Strict validation also blocks rollback, modified revisions, and silent changes to provider trust fields.
 
 MuxLM only reports a newer app version during startup; it never silently replaces the binary.
 

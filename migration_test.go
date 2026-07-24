@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode"
 )
 
 func TestMuxLMEnvironmentTakesPrecedence(t *testing.T) {
@@ -352,7 +353,7 @@ func TestCatalogAcceptsCanonicalAndLegacyProviderKeyNamespaces(t *testing.T) {
 			OpenAIURL: "https://example.com",
 			KeyEnv:    keyEnv,
 			CLI:       []string{"codex"},
-			Models:    []Model{{ID: "test-model", Latest: true}},
+			Models:    []Model{{ID: "test-model", Source: "official", Latest: true}},
 		})
 		if err := validateCatalog(catalog); err != nil {
 			t.Fatalf("key namespace %s was rejected: %v", keyEnv, err)
@@ -464,6 +465,24 @@ func TestReleaseAssetNamingMatchesInstaller(t *testing.T) {
 	}
 	if !strings.Contains(string(installer), `ASSET="muxlm-$GOOS-$GOARCH"`) || !strings.Contains(string(installer), `LEGACY_ASSET="providerdeck-$GOOS-$GOARCH"`) {
 		t.Fatal("installer asset name is not canonical")
+	}
+	for _, want := range []string{
+		"curl -fsSL https://raw.githubusercontent.com/Neo-Isshin/MuxLM/main/install.sh | bash",
+		"MuxLM Installer",
+		"Detected tools:",
+		`print_detected_tool "Claude Code" "claude"`,
+		`print_detected_tool "Codex" "codex"`,
+		`print_detected_tool "OpenCode" "opencode"`,
+		"MuxLM commands:",
+	} {
+		if !strings.Contains(string(installer), want) {
+			t.Fatalf("installer is missing %q", want)
+		}
+	}
+	for _, r := range string(installer) {
+		if unicode.Is(unicode.Han, r) {
+			t.Fatalf("installer contains non-English text: %q", r)
+		}
 	}
 	if !strings.Contains(string(workflow), `dist/muxlm-$os-$arch`) || !strings.Contains(string(workflow), `dist/providerdeck-$os-$arch`) || !strings.Contains(string(workflow), `sha256sum muxlm-* providerdeck-* > SHA256SUMS`) {
 		t.Fatal("release workflow does not publish canonical and compatibility assets")
