@@ -6,6 +6,8 @@ Launch Codex, Claude Code, or OpenCode with a custom provider and model using on
 
 MuxLM is a lightweight CLI switcher, not a proxy. The selected CLI connects directly to the provider, and MuxLM keeps its temporary launch configuration separate from your existing global configuration.
 
+See the full [Catalog reference](CATALOG.md), split into official and relay routes and formatted like `cld list`.
+
 ## Usage example
 
 To use GLM 5.2 in Codex, run `cdx glm52`. This launches the Codex CLI with GLM 5.2.

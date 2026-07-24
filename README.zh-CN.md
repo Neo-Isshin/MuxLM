@@ -6,6 +6,8 @@
 
 MuxLM 是轻量 CLI 切换器，不是代理服务。底层 CLI 会直连所选 provider；启动时使用的临时配置也不会污染原有全局配置。
 
+完整列表见 [Catalog 参照表](CATALOG.zh-CN.md)，内容按照 `cld list` 的格式分为官方来源与中转来源。
+
 ## 使用示例
 如你需要在codex中使用glm5.2模型 ，你可以直接输入`cdx glm52`即可启动使用了glm5.2模型的codex cli。
 
