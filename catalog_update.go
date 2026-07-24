@@ -222,6 +222,9 @@ var legacyCatalogKeyEnvs = map[string]string{
 	"nvidia/standard":      "NVIDIA_API_KEY",
 	"deepseek/standard":    "DEEPSEEK_API_KEY",
 	"siliconflow/standard": "SILICONFLOW_KEY",
+	"bailian/standard":     "MUXLM_PROVIDER_BAILIAN_KEY",
+	"bailian/coding":       "MUXLM_PROVIDER_BAILIAN_CODING_KEY",
+	"openrouter/standard":  "MUXLM_PROVIDER_OPENROUTER_KEY",
 }
 
 func validCatalogKeyEnv(p *Provider) bool {

@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "revision": "2026-07-23.1",
+  "revision": "2026-07-23.2",
   "retired_tags": {
     "doubao-code": "doubao/standard/doubao-seed-code-preview-latest",
     "k3": "kimi/coding/k3",
@@ -126,6 +126,63 @@
       "models": [
         {"id": "deepseek-ai/DeepSeek-V4-Flash", "tag": "sfv4f", "latest": true},
         {"id": "deepseek-ai/DeepSeek-V4-Pro", "tag": "sfv4p", "latest": false}
+      ]
+    },
+    {
+      "id": "bailian",
+      "alias": "q",
+      "name": "阿里云百炼（按量计费 API）",
+      "plan": "standard",
+      "claude_url": "https://dashscope.aliyuncs.com/apps/anthropic",
+      "openai_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      "key_env": "MUXLM_PROVIDER_BAILIAN_KEY",
+      "cli": ["claude", "codex", "opencode"],
+      "models": [
+        {"id": "qwen3.7-plus", "tag": "q37", "latest": true},
+        {"id": "qwen3.7-max", "tag": "q37m", "latest": false},
+        {"id": "qwen3-coder-next", "tag": "qcn", "latest": false},
+        {"id": "qwen3-coder-plus", "tag": "qcp", "latest": false}
+      ]
+    },
+    {
+      "id": "bailian",
+      "alias": "qc",
+      "name": "阿里云百炼 Coding Plan（订阅）",
+      "plan": "coding",
+      "claude_url": "https://coding.dashscope.aliyuncs.com/apps/anthropic",
+      "openai_url": "https://coding.dashscope.aliyuncs.com/v1",
+      "key_env": "MUXLM_PROVIDER_BAILIAN_CODING_KEY",
+      "cli": ["claude", "codex", "opencode"],
+      "models": [
+        {"id": "qwen3.7-plus", "tag": "qc37", "latest": true},
+        {"id": "qwen3.6-plus", "tag": "qc36", "latest": false},
+        {"id": "kimi-k2.5", "tag": "qck25", "latest": false},
+        {"id": "glm-5", "tag": "qcglm5", "latest": false},
+        {"id": "MiniMax-M2.5", "tag": "qcm25", "latest": false},
+        {"id": "qwen3.5-plus", "tag": "qc35", "latest": false},
+        {"id": "qwen3-max-2026-01-23", "tag": "qc3m", "latest": false},
+        {"id": "qwen3-coder-next", "tag": "qccn", "latest": false},
+        {"id": "qwen3-coder-plus", "tag": "qccp", "latest": false},
+        {"id": "glm-4.7", "tag": "qcglm47", "latest": false}
+      ]
+    },
+    {
+      "id": "openrouter",
+      "alias": "or",
+      "name": "OpenRouter",
+      "plan": "standard",
+      "openai_url": "https://openrouter.ai/api/v1",
+      "key_env": "MUXLM_PROVIDER_OPENROUTER_KEY",
+      "cli": ["codex", "opencode"],
+      "models": [
+        {"id": "anthropic/claude-sonnet-5", "tag": "ors5", "latest": true},
+        {"id": "anthropic/claude-opus-4.8", "tag": "oro48", "latest": false},
+        {"id": "anthropic/claude-sonnet-4.6", "tag": "ors46", "latest": false},
+        {"id": "openai/gpt-5.6-sol", "tag": "org56", "latest": false},
+        {"id": "qwen/qwen3-coder-next", "tag": "orqcn", "latest": false},
+        {"id": "z-ai/glm-5.2", "tag": "orglm52", "latest": false},
+        {"id": "moonshotai/kimi-k3", "tag": "ork3", "latest": false},
+        {"id": "minimax/minimax-m3", "tag": "orm3", "latest": false}
       ]
     }
   ]

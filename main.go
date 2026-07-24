@@ -39,6 +39,9 @@ const helpText = appName + ` — 快速切换 Claude Code / Codex / OpenCode 的
 
 示例:
   cld glm                     Claude Code + GLM 最新模型
+  cld qc                      Claude Code + 百炼 Coding Plan
+  cdx q                       Codex + 千问最新模型
+  opc or                      OpenCode + OpenRouter
   cdx m --intl                Codex + MiniMax 海外端点
   opc ds -m deepseek-v4-pro   OpenCode + 指定模型
   cld glm -- "fix the bug"    将 -- 后的参数原样传给 Claude Code
@@ -289,16 +292,49 @@ func printTable() {
 				latest = m.ID
 			}
 		}
-		alias := p.Alias
-		if len(tags) > 0 {
-			alias += " (" + strings.Join(tags, ",") + ")"
-		}
 		intlMark := "—"
 		if p.hasIntl() {
 			intlMark = "--intl"
 		}
-		fmt.Println("  " + pad(alias, 25) + pad(p.Name, 29) + pad(latest, 36) + pad(entrySummary(p), 13) + intlMark)
+		aliasLines := wrapAliasCell(p.Alias, tags, 25)
+		fmt.Println("  " + pad(aliasLines[0], 25) + pad(p.Name, 29) + pad(latest, 36) + pad(entrySummary(p), 13) + intlMark)
+		for _, continuation := range aliasLines[1:] {
+			fmt.Println("  " + pad(continuation, 25))
+		}
 	}
+}
+
+func wrapAliasCell(alias string, tags []string, width int) []string {
+	if len(tags) == 0 {
+		return []string{alias}
+	}
+	var lines []string
+	remaining := tags
+	first := true
+	for len(remaining) > 0 {
+		prefix := strings.Repeat(" ", dispWidth(alias)+1) + "("
+		if first {
+			prefix = alias + " ("
+		}
+		line := prefix
+		used := 0
+		for used < len(remaining) {
+			separator := ""
+			if used > 0 {
+				separator = ","
+			}
+			candidate := line + separator + remaining[used] + ")"
+			if used > 0 && dispWidth(candidate) > width {
+				break
+			}
+			line += separator + remaining[used]
+			used++
+		}
+		lines = append(lines, line+")")
+		remaining = remaining[used:]
+		first = false
+	}
+	return lines
 }
 
 func entrySummary(p *Provider) string {

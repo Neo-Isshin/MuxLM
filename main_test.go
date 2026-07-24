@@ -81,6 +81,84 @@ func TestPlansShareDirectoryButKeepSeparateKeys(t *testing.T) {
 	}
 }
 
+func TestBailianCatalogSeparatesPayAsYouGoAndCodingPlan(t *testing.T) {
+	isolatedConfig(t)
+	idx := buildIndex()
+	payg, paygOK := idx["q"]
+	coding, codingOK := idx["qc"]
+	if !paygOK || !codingOK {
+		t.Fatalf("Bailian aliases missing: q=%v qc=%v", paygOK, codingOK)
+	}
+	if payg.Prov.providerID() != "bailian" || coding.Prov.providerID() != "bailian" {
+		t.Fatalf("Bailian provider ids = %q, %q", payg.Prov.providerID(), coding.Prov.providerID())
+	}
+	if payg.Prov.planID() != "standard" || coding.Prov.planID() != "coding" {
+		t.Fatalf("Bailian plans = %q, %q", payg.Prov.planID(), coding.Prov.planID())
+	}
+	if payg.Prov.OpenAIURL != "https://dashscope.aliyuncs.com/compatible-mode/v1" ||
+		coding.Prov.OpenAIURL != "https://coding.dashscope.aliyuncs.com/v1" {
+		t.Fatalf("Bailian OpenAI routes = %q, %q", payg.Prov.OpenAIURL, coding.Prov.OpenAIURL)
+	}
+	if payg.Prov.ClaudeURL != "https://dashscope.aliyuncs.com/apps/anthropic" ||
+		coding.Prov.ClaudeURL != "https://coding.dashscope.aliyuncs.com/apps/anthropic" {
+		t.Fatalf("Bailian Anthropic routes = %q, %q", payg.Prov.ClaudeURL, coding.Prov.ClaudeURL)
+	}
+	if payg.Prov.KeyEnv == coding.Prov.KeyEnv {
+		t.Fatal("Bailian pay-as-you-go and Coding Plan must not share a key identity")
+	}
+	if payg.Model.ID != "qwen3.7-plus" || coding.Model.ID != "qwen3.7-plus" {
+		t.Fatalf("Bailian latest models = %q, %q", payg.Model.ID, coding.Model.ID)
+	}
+	for _, alias := range []string{"q37", "q37m", "qcn", "qcp", "qc37", "qc36", "qck25", "qcglm5", "qcm25", "qc35", "qc3m", "qccn", "qccp", "qcglm47"} {
+		if _, ok := idx[alias]; !ok {
+			t.Fatalf("Bailian model alias %q missing", alias)
+		}
+	}
+}
+
+func TestOpenRouterCatalogUsesCuratedToolCapableModels(t *testing.T) {
+	isolatedConfig(t)
+	idx := buildIndex()
+	openrouter, ok := idx["or"]
+	if !ok {
+		t.Fatal("OpenRouter alias missing")
+	}
+	if openrouter.Prov.OpenAIURL != "https://openrouter.ai/api/v1" ||
+		openrouter.Prov.supports("claude") ||
+		!openrouter.Prov.supports("codex") ||
+		!openrouter.Prov.supports("opencode") {
+		t.Fatalf("OpenRouter route = %#v", openrouter.Prov)
+	}
+	if openrouter.Model.ID != "anthropic/claude-sonnet-5" {
+		t.Fatalf("OpenRouter latest model = %q", openrouter.Model.ID)
+	}
+	for _, alias := range []string{"ors5", "oro48", "ors46", "org56", "orqcn", "orglm52", "ork3", "orm3"} {
+		resolved, ok := idx[alias]
+		if !ok || resolved.Prov.providerID() != "openrouter" {
+			t.Fatalf("OpenRouter model alias %q = %#v", alias, resolved)
+		}
+	}
+}
+
+func TestAliasTableWrapsLongModelListsWithoutHidingAliases(t *testing.T) {
+	tags := []string{"qc37", "qc36", "qck25", "qcglm5", "qcm25", "qc35", "qc3m", "qccn", "qccp", "qcglm47"}
+	lines := wrapAliasCell("qc", tags, 25)
+	if len(lines) < 2 {
+		t.Fatalf("long alias list did not wrap: %#v", lines)
+	}
+	joined := strings.Join(lines, "")
+	for _, tag := range tags {
+		if !strings.Contains(joined, tag) {
+			t.Fatalf("wrapped alias list omitted %q: %#v", tag, lines)
+		}
+	}
+	for _, line := range lines {
+		if dispWidth(line) > 25 {
+			t.Fatalf("wrapped alias line exceeds column width: %q (%d)", line, dispWidth(line))
+		}
+	}
+}
+
 func TestKimiAliasesSeparateAPIAndCodingPlans(t *testing.T) {
 	isolatedConfig(t)
 	idx := buildIndex()

@@ -59,6 +59,9 @@ Choose an entry command and a provider alias:
 cld k27                    # Claude Code + pay-as-you-go Kimi K2.7 Code
 cld kc                     # Claude Code + Kimi Coding Plan
 cld glm                    # Claude Code + latest GLM
+cld qc                     # Claude Code + Bailian Coding Plan
+cdx q                      # Codex + latest Qwen
+opc or                     # OpenCode + OpenRouter
 cdx m --intl               # Codex + MiniMax international route
 opc ds                     # OpenCode + latest DeepSeek
 ```

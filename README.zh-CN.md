@@ -58,6 +58,9 @@ curl -fsSL https://raw.githubusercontent.com/Neo-Isshin/MuxLM/main/install.sh | 
 cld k27                    # Claude Code + 按量计费 Kimi K2.7 Code
 cld kc                     # Claude Code + Kimi Coding Plan
 cld glm                    # Claude Code + 最新 GLM
+cld qc                     # Claude Code + 百炼 Coding Plan
+cdx q                      # Codex + 最新千问
+opc or                     # OpenCode + OpenRouter
 cdx m --intl               # Codex + MiniMax 海外线路
 opc ds                     # OpenCode + 最新 DeepSeek
 ```
