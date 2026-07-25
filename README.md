@@ -1,170 +1,171 @@
 # MuxLM
 
-Launch Codex, Claude Code, or OpenCode with a custom provider and model using one short command.
+> Switch between providers and models in Codex, Claude Code, and OpenCode — without editing config files or leaving API keys scattered everywhere.
 
-[简体中文](README.zh-CN.md)
+One line to try: `cdx glm52` — launches Codex with GLM 5.2.
 
-MuxLM is a lightweight CLI switcher, not a proxy. The selected CLI connects directly to the provider, and MuxLM keeps its temporary launch configuration separate from your existing global configuration.
+[简体中文](README.zh-CN.md) · [Catalog reference](CATALOG.md)
 
-See the full [Catalog reference](CATALOG.md), split into official and relay routes and formatted like `cld list`.
+MuxLM is a **lightweight switcher, not a proxy**: the underlying CLI connects directly to your chosen provider, and the temporary launch configuration stays isolated from your existing global config — it leaves nothing behind.
 
-## Usage example
+## What it is
 
-To use GLM 5.2 in Codex, run `cdx glm52`. This launches the Codex CLI with GLM 5.2.
+| Command | Launches | Example |
+| --- | --- | --- |
+| `cdx` | Codex | `cdx glm` → Codex with the latest GLM |
+| `cld` | Claude Code | `cld k3` → Claude Code with Kimi K3 |
+| `opc` | OpenCode | `opc ds` → OpenCode with the latest DeepSeek |
 
-If GLM 5.2 is Zhipu's current latest model, `cdx glm` is enough. The catalog updates automatically. Use `cld` for Claude Code and `opc` for OpenCode.
+All three are the **same binary**; only the default CLI differs. `cld` is also the management entry point (`list`, `config`, `update`, …), so you only need to remember three words: `cdx`, `cld`, `opc`.
 
-The first time you use a provider, MuxLM prompts you for its API key and related settings. See below for details.
-
-To keep the number of commands you need to remember to a minimum, `cld` also provides access to MuxLM's management commands.
+> Compatibility comes from the catalog; MuxLM does **no protocol translation**. For the full list of any provider/model, run `<entry> list` or browse the [Catalog reference](CATALOG.md).
 
 ## Why MuxLM
 
-- One binary, three entry points: `cdx`, `cld`, and `opc`
-- A provider/model catalog that updates independently and still works offline
-- Catalog updates can add providers and models, remove retired models, and move `latest`
-- API keys use macOS Keychain or Linux Secret Service when available
-- Named keys, domestic/international routes, and custom providers
+- One binary, three entry points: `cdx`, `cld`, `opc`
+- The catalog (provider/model list) updates independently, and **works offline** via cache and an embedded fallback
+- Supports official provider routes, relay routes, and custom providers
+- API keys are stored in macOS Keychain or Linux Secret Service when available
+- Named keys, domestic/international routes
 - No daemon, database, GUI, or protocol proxy
 
-## One-line install
+## Install
 
-Prebuilt releases support macOS and Linux on ARM64 and AMD64. You must also install the underlying CLI you want to launch and make it available in `PATH`.
+Prebuilt releases support macOS and Linux on ARM64 and AMD64. You must also install the underlying CLI you want to launch (Codex / Claude Code / OpenCode) and make it available in `PATH`.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Neo-Isshin/MuxLM/main/install.sh | bash
 ```
 
-The installer verifies the release checksum, installs `muxlm` to `~/.local/bin`, and creates the `cdx`, `cld`, and `opc` commands. Add that directory to `PATH` if the installer asks you to.
+The installer verifies the release checksum, installs `muxlm` to `~/.local/bin`, and creates the `cdx`, `cld`, and `opc` commands. If it says that directory is not in `PATH`, add it with the command it prints.
 
-Before downloading, the installer checks all of its dependencies and prints the appropriate command for apt, dnf, yum, apk, pacman, zypper, or Homebrew. It can also run that command after asking for confirmation:
+Before downloading, it checks all dependencies and prints the right command for apt, dnf, yum, apk, pacman, zypper, or Homebrew. It can also run that command after asking for confirmation:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Neo-Isshin/MuxLM/main/install.sh | bash -s -- --install-deps
 ```
 
-It never runs `sudo` silently. Because the outer one-liner itself requires `curl` and `bash`, install either of those with the system package manager first if it is not already available.
+It never runs `sudo` silently. The outer one-liner itself needs `curl` and `bash`; install either with the system package manager first if it is not already available.
 
-## First use
+## 30-second start
 
-No setup command is required. Choose a provider and launch it directly—for example, `opc ds` starts OpenCode with the latest DeepSeek model.
+No setup required — just launch with a model short name:
 
-The first time you use a provider, MuxLM asks for its API key without showing it on screen, validates it, and stores it securely. Once that provider has a saved key, later launches reuse it automatically; all models in the same provider profile use the same key.
+1. For example, `opc ds` — starts OpenCode with the latest DeepSeek.
+2. The **first time** you use a provider, MuxLM asks for its API key (input is hidden), validates it, and stores it securely.
+3. Later launches of any model under that provider reuse the saved key automatically — no need to re-enter.
 
-The shared management commands—such as `list`, `doctor`, `config`, and `update`—work through any of `cdx`, `cld`, or `opc`.
+> A provider keeps a single key, shared by every model in that provider.
 
-## Quick start
+## Common models
 
-Using a model short name by itself always selects the model publisher's official route. Prefix it with a provider alias when you want another source:
+**Two rules:**
+
+- A model short name alone → its publisher's **official** route (e.g. `cld k3`).
+- To use another source, prefix the model name with a **source alias** (e.g. `opc or k3` for OpenRouter).
+
+| Command | Meaning |
+| --- | --- |
+| `cld def` | Claude Code's own subscription and default model |
+| `cdx def` | Codex's own account and default model |
+| `opc def` | OpenCode's own config and default model |
+| `cld k3` | Claude Code + Kimi **official** K3 |
+| `opc or k3` | OpenCode + Kimi K3 via **OpenRouter** |
+| `cld sf k27` | Claude Code + Kimi K2.7 Code via SiliconFlow |
+| `cld k27` | Claude Code + pay-as-you-go Kimi K2.7 Code |
+| `cld kc` | Claude Code + Kimi Coding Plan |
+| `cld glm` | Claude Code + latest GLM (`cdx glm52` pins 5.2) |
+| `cld qc` | Claude Code + Bailian Coding Plan |
+| `cdx q` | Codex + latest Qwen |
+| `opc or` | OpenCode + OpenRouter |
+| `cdx m --intl` | Codex + latest MiniMax M3 on the **international** route |
+| `opc ds` | OpenCode + latest DeepSeek |
+
+**About `def`:** It uses no MuxLM provider and reads no stored key. Instead it clears routing overrides and lets the CLI fall back to its native account, configuration, and default model (Claude Code returns to subscription models like Opus and Fable; Codex / OpenCode return to their own logins and config). Pass native CLI arguments after `--`, e.g. `cld def -- --model opus`.
+
+**Same name, no collision:** `cld k3` is always Kimi official, while `<entry> or k3` selects OpenRouter. If the chosen source does not currently offer that model, MuxLM says so — it **never** silently swaps in that source's default. Existing pinned aliases such as `sfv4f` and `ork3` keep working.
+
+**Three useful options:**
 
 ```bash
-cld def                    # Claude Code's own subscription and default model
-cdx def                    # Codex's own account and default model
-opc def                    # OpenCode's own config and default model
-cld k3                     # Claude Code + Kimi K3 from Kimi
-opc or k3                  # OpenCode + Kimi K3 through OpenRouter
-cld sf k27                 # Claude Code + Kimi K2.7 Code through SiliconFlow
-cld k27                    # Claude Code + pay-as-you-go Kimi K2.7 Code
-cld kc                     # Claude Code + Kimi Coding Plan
-cld glm                    # Claude Code + latest GLM
-cld qc                     # Claude Code + Bailian Coding Plan
-cdx q                      # Codex + latest Qwen
-opc or                     # OpenCode + OpenRouter
-cdx m --intl               # Codex + latest MiniMax M3 on the international route
-opc ds                     # OpenCode + latest DeepSeek
+opc ds -m deepseek-v4-pro   # Override the model ID
+cld glm -- "fix the bug"    # Pass everything after -- to the underlying CLI
+cdx glm --dry-run           # Preview configuration without launching
 ```
-
-`def` does not use a MuxLM provider or stored provider key. It removes MuxLM routing overrides and lets the selected CLI use its normal account, configuration, and default model. Claude Code therefore returns to the models available through its own subscription, while Codex and OpenCode return to their native login/configuration. Put native CLI arguments after `--`, for example `cld def -- --model opus`.
-
-The same model short name may appear under multiple providers without colliding: `cld k3` always means the official Kimi route, while `<entry> or k3` selects OpenRouter. If the selected provider does not currently offer that model, MuxLM says so instead of silently launching its default model. Existing pinned aliases such as `sfv4f` and `ork3` remain available.
-
-The most useful options are:
-
-```bash
-opc ds -m deepseek-v4-pro  # Override the model ID
-cld glm -- "fix the bug"   # Pass everything after -- to the underlying CLI
-cdx glm --dry-run          # Preview configuration without launching
-```
-
-`cdx` launches Codex, `cld` launches Claude Code, and `opc` launches OpenCode. Provider compatibility comes from the catalog; MuxLM does not translate protocols.
 
 ## Essential commands
 
-```text
-<entry> list                 List providers, aliases, and models
-<entry> config               View and manage providers and keys
-<entry> add                  Add a provider key or custom provider
-<entry> set-key <alias>      Add another named key
-<entry> remove <alias>       Remove local provider configuration
-<entry> update               Update the model list
-<entry> update --tool        Update detected Codex, Claude Code, and OpenCode CLIs
-<entry> update --self        Update MuxLM
-<entry> update --all         Update everything
-<entry> doctor               Run local, read-only diagnostics
-<entry> version              Show app and catalog versions
-<entry> --help               Show full help
-```
+Any of `cdx`, `cld`, `opc` runs the management commands below (`<entry>` stands for whichever you use):
 
-## Catalog updates
+| Command | What it does |
+| --- | --- |
+| `<entry> list` | List providers, aliases, and models |
+| `<entry> config` | View and manage providers and keys |
+| `<entry> add` | Add a provider key or custom provider |
+| `<entry> set-key <alias>` | Add another named key |
+| `<entry> remove <alias>` | Remove local provider configuration |
+| `<entry> update` | Update the model list (see [Updates](#updates)) |
+| `<entry> doctor` | Run local, read-only diagnostics |
+| `<entry> version` | Show app and catalog versions |
+| `<entry> --help` | Show full help |
 
-MuxLM checks the catalog on every normal startup. A valid update is stored atomically and can take effect immediately. If the check fails, MuxLM keeps using the last valid cache or the embedded catalog.
+## Updates
 
-Updates are not limited to additions: a catalog revision may add providers/models, retire and remove old models or aliases, and move `latest`. Permanent tombstones prevent retired version aliases from being reused. Official model short names and provider-scoped short names cannot be silently redirected by a later update. Strict validation also blocks rollback, modified revisions, and silent changes to provider trust fields.
+Four forms, each with one clear purpose:
 
-MuxLM only reports a newer app version during startup; it never silently replaces the binary.
+| Command | Updates |
+| --- | --- |
+| `cld update` | The model list |
+| `cld update --tool` | The installed Codex / Claude Code / OpenCode |
+| `cld update --self` | MuxLM itself |
+| `cld update --all` | All of the above, in order |
+
+> `cdx update …` and `opc update …` do the same thing.
+
+**Updating the three AI tools (`--tool`):** MuxLM finds them in `PATH`, recognizes whether each came from npm, Homebrew, or an official installer, and hands it to its official updater — it never changes your install method. Missing tools are skipped; one failure does not stop the others. If a tool is too old for a safe automatic update, MuxLM asks you to upgrade it once via the original method instead of accidentally opening its interactive interface.
+
+**Automatic catalog updates:** Every normal startup also checks the model list; a valid update is written atomically and can take effect immediately. If the check fails, MuxLM keeps the last valid cache or the embedded catalog — so **it works offline**. A newer app version is only reported; the binary is **never** silently replaced.
 
 ```bash
-MUXLM_AUTO_UPDATE=0 cld glm       # Disable startup checks
-MUXLM_UPDATE_DEBUG=1 cld glm      # Show update diagnostics
+MUXLM_AUTO_UPDATE=0 cld glm      # Disable startup checks
+MUXLM_UPDATE_DEBUG=1 cld glm     # Show update diagnostics
 cld update                        # Update the model list now
 ```
 
-## Update all three AI tools in one command
+MuxLM installed via the command in this README can update itself. If the current copy came from elsewhere, MuxLM stops and asks you to use the original installation method instead of overwriting an unknown file.
 
-You do not need to look up three separate upgrade commands. One command updates every detected Codex, Claude Code, and OpenCode installation:
+## Privacy
 
-```bash
-cld update --tool
-```
+- The child process receives only the **selected provider's** key; other provider keys are removed from its environment.
+- Codex and OpenCode get **disposable configuration directories** — your global config is untouched.
+- API keys are stored in macOS Keychain or Linux Secret Service when available.
 
-`cdx update --tool` and `opc update --tool` do the same thing.
+## Advanced
 
-MuxLM finds the three tools in `PATH` and hands each one to its official updater. The tool recognizes whether it came from npm, Homebrew, or an official installer and stays on that installation channel. Missing tools are skipped, and one failed update does not stop the others.
+### Host your own catalog
 
-If an installed version is too old to support a safe automatic update, MuxLM asks you to upgrade it once through its original installation method instead of accidentally opening its interactive interface.
-
-## Update the model list and MuxLM
-
-Each update form has one clear purpose:
-
-```bash
-cld update           # Update only the model list
-cld update --tool    # Update the three installed AI tools
-cld update --self    # Update only MuxLM
-cld update --all     # Run all of the above in order
-```
-
-MuxLM installations created by the command in this README can update themselves. If the current copy came from somewhere else, MuxLM stops and asks you to use the original installation method instead of overwriting an unknown file.
-
-## Host your own catalog
-
-Serve `catalog.json` from a static HTTPS URL, preferably with `ETag` or `Last-Modified`, then set:
+Serve `catalog.json` from a static HTTPS URL (preferably with `ETag` or `Last-Modified`), then set:
 
 ```bash
 export MUXLM_CATALOG_URL=https://example.com/catalog.json
 ```
 
-Until you move it, the default catalog is served from this GitHub repository. Downloads are limited to 2 MiB and checked with a strict schema, monotonic immutable revisions, rollback protection, tombstones, and trust-field pinning.
+Until you move it, the default catalog is served from this GitHub repository. Downloads are limited to 2 MiB and checked with strict schema validation, monotonic immutable revisions, rollback protection, tombstones, and trust-field pinning.
 
-## Privacy and migration
+### Catalog update safety
 
-- Only the selected key is passed to the child CLI; other provider keys are removed from its environment.
-- Codex and OpenCode receive disposable configuration directories.
-- Configuration overrides are checked in this order: `MUXLM_CONFIG_DIR`, `PROVIDERDECK_CONFIG_DIR`, then `CX_CONFIG_DIR`. With none set, Linux uses `$XDG_CONFIG_HOME/muxlm` or `~/.config/muxlm`, while macOS defaults to `~/.config/muxlm`. Existing ProviderDeck and ez-switch/cx configuration and secrets remain readable without destructive migration.
-- Environment precedence is `MUXLM_*`, then `PROVIDERDECK_*`, then `CX_*`.
-- The installer keeps compatible `providerdeck` and `ez-switch` command aliases when it can do so safely.
+Catalog updates are not limited to additions: a revision may add providers/models, retire and remove old models or aliases, and move `latest`. To prevent surprises from later updates, these guarantees always hold:
 
-## Build
+- Revisions are **monotonic and immutable** — a given revision cannot be modified or rolled back.
+- Retired models leave a **permanent tombstone**, so a retired version alias can never be reused by a later update.
+- **Official model short names** and "source + model" targets cannot be silently redirected elsewhere by a later update.
+- A provider's **trust fields** cannot be changed silently.
+
+### Migrating from older tools
+
+The config directory is chosen in this order: `MUXLM_CONFIG_DIR` → `PROVIDERDECK_CONFIG_DIR` → `CX_CONFIG_DIR`. With none set, Linux uses `$XDG_CONFIG_HOME/muxlm` or `~/.config/muxlm`, and macOS defaults to `~/.config/muxlm`. Environment precedence is `MUXLM_*` > `PROVIDERDECK_*` > `CX_*`. Existing ProviderDeck and ez-switch (cx) configuration and secrets remain readable with **no destructive migration**; the installer keeps `providerdeck` and `ez-switch` compatible aliases when it is safe to do so.
+
+### Build from source
 
 ```bash
 go test ./...
