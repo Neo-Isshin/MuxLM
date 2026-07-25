@@ -1,8 +1,8 @@
 # MuxLM Catalog 参照表
 
-[English](CATALOG.md) · [Catalog 原始数据](catalog.json)
+[English](CATALOG.md) · [Catalog 原始数据](catalog-v2.json)
 
-本表沿用 `cld list` 的展示方式，并按模型的实际来源分为官方来源和中转来源。内容对应内置 Catalog revision `2026-07-23.4`；由于 MuxLM 可以独立更新 Catalog，请以本机执行 `cld list` 后显示的内容为准。
+本表沿用 `cld list` 的展示方式，并按模型的实际来源分为官方来源和中转来源。内容对应内置 Catalog revision `2026-07-24.1`；由于 MuxLM 可以独立更新 Catalog，请以本机执行 `cld list` 后显示的内容为准。
 
 入口可以使用 `cdx`、`cld` 或 `opc`。单独使用模型短名时选择官方来源；需要中转来源时，在模型短名前增加来源短名，例如 `cld k3` 与 `opc or k3`。
 

@@ -332,7 +332,7 @@ func TestSecretSetDoesNotShadowOversizedLegacyStore(t *testing.T) {
 }
 
 func TestDefaultSourcesUseGitHubMuxLM(t *testing.T) {
-	if defaultCatalogURL != "https://raw.githubusercontent.com/Neo-Isshin/MuxLM/main/catalog.json" {
+	if defaultCatalogURL != "https://raw.githubusercontent.com/Neo-Isshin/MuxLM/main/catalog-v2.json" {
 		t.Fatalf("catalog source = %q", defaultCatalogURL)
 	}
 	if defaultReleaseAPIURL != "https://api.github.com/repos/Neo-Isshin/MuxLM/releases/latest" {

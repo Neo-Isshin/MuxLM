@@ -21,7 +21,7 @@ import (
 )
 
 const (
-	defaultCatalogURL   = "https://raw.githubusercontent.com/Neo-Isshin/MuxLM/main/catalog.json"
+	defaultCatalogURL   = "https://raw.githubusercontent.com/Neo-Isshin/MuxLM/main/catalog-v2.json"
 	maxCatalogBytes     = 2 << 20
 	catalogStateVersion = 3
 )

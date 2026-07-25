@@ -1,8 +1,8 @@
 # MuxLM Catalog
 
-[简体中文](CATALOG.zh-CN.md) · [Raw catalog data](catalog.json)
+[简体中文](CATALOG.zh-CN.md) · [Raw catalog data](catalog-v2.json)
 
-This reference follows the layout of `cld list` and separates first-party model routes from relay routes. It reflects the embedded catalog revision `2026-07-23.4`; because MuxLM can update its catalog independently, run `cld list` to see the catalog currently active on your machine.
+This reference follows the layout of `cld list` and separates first-party model routes from relay routes. It reflects the embedded catalog revision `2026-07-24.1`; because MuxLM can update its catalog independently, run `cld list` to see the catalog currently active on your machine.
 
 Use `cdx`, `cld`, or `opc` as the entry command. A model short name by itself selects its official route; prefix it with a source alias to select a relay, for example `cld k3` versus `opc or k3`.
 

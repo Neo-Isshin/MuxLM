@@ -44,10 +44,11 @@ type CatalogFile struct {
 
 var errCatalogCacheStale = errors.New("catalog cache 旧于内置版本")
 
-// catalog.json is the single source for both the shipped offline seed and the
-// separately hosted update artifact.
+// catalog-v2.json is the single source for both the shipped offline seed and
+// the separately hosted v2 update artifact. catalog.json remains the frozen
+// v1 endpoint for released clients that reject unknown fields.
 //
-//go:embed catalog.json
+//go:embed catalog-v2.json
 var embeddedCatalogJSON []byte
 
 var embeddedCatalog = mustLoadEmbeddedCatalog()

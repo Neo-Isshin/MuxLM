@@ -809,7 +809,7 @@ func TestCdxConfigCannotRemoveAnthropicOnlyRoute(t *testing.T) {
 
 func TestCatalogUpdateValidatesAndWrites(t *testing.T) {
 	isolatedConfig(t)
-	b, err := os.ReadFile("catalog.json")
+	b, err := os.ReadFile("catalog-v2.json")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -821,6 +821,44 @@ func TestCatalogUpdateValidatesAndWrites(t *testing.T) {
 	}
 	if _, err := os.Stat(catalogCacheFile()); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestLegacyCatalogEndpointRemainsV1Compatible(t *testing.T) {
+	b, err := os.ReadFile("catalog.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var legacy struct {
+		Version     int               `json:"version"`
+		Revision    string            `json:"revision"`
+		RetiredTags map[string]string `json:"retired_tags,omitempty"`
+		Providers   []struct {
+			ID            string `json:"id"`
+			Alias         string `json:"alias"`
+			Name          string `json:"name"`
+			Plan          string `json:"plan,omitempty"`
+			ClaudeURL     string `json:"claude_url,omitempty"`
+			OpenAIURL     string `json:"openai_url,omitempty"`
+			ClaudeURLIntl string `json:"claude_url_intl,omitempty"`
+			OpenAIURLIntl string `json:"openai_url_intl,omitempty"`
+			KeyEnv        string `json:"key_env"`
+			CLI           []string
+			WireAPI       string `json:"wire_api,omitempty"`
+			Models        []struct {
+				ID     string `json:"id"`
+				Tag    string `json:"tag"`
+				Latest bool   `json:"latest"`
+			} `json:"models"`
+		} `json:"providers"`
+	}
+	decoder := json.NewDecoder(bytes.NewReader(b))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&legacy); err != nil {
+		t.Fatalf("legacy catalog is not readable by released clients: %v", err)
+	}
+	if legacy.Version != 1 || legacy.Revision == "" || len(legacy.Providers) == 0 {
+		t.Fatalf("invalid legacy catalog header: version=%d revision=%q providers=%d", legacy.Version, legacy.Revision, len(legacy.Providers))
 	}
 }
 
