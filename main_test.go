@@ -31,7 +31,7 @@ func isolatedConfig(t *testing.T) string {
 func TestModelAliasesShareProviderKeys(t *testing.T) {
 	isolatedConfig(t)
 	idx := buildIndex()
-	for _, alias := range []string{"m", "m3", "m27std", "m27"} {
+	for _, alias := range []string{"m", "m3", "m27std", "m27", "m25std", "m25", "m21", "m2"} {
 		if idx[alias].Prov.providerID() != "minimax" {
 			t.Fatalf("%s provider id = %q", alias, idx[alias].Prov.providerID())
 		}
@@ -44,7 +44,7 @@ func TestModelAliasesShareProviderKeys(t *testing.T) {
 	if err := saveProviderKeys("minimax", []KeyRecord{rec}); err != nil {
 		t.Fatal(err)
 	}
-	for _, alias := range []string{"m3", "m27std", "m27"} {
+	for _, alias := range []string{"m3", "m27std", "m27", "m25std", "m25", "m21", "m2"} {
 		cs, err := keyCandidates(idx[alias].Prov, "cn")
 		if err != nil || len(cs) != 1 || cs[0].Name != "key1" {
 			t.Fatalf("%s candidates = %#v, %v", alias, cs, err)
@@ -145,7 +145,7 @@ func TestBailianCatalogSeparatesPayAsYouGoAndCodingPlan(t *testing.T) {
 	if payg.Model.ID != "qwen3.7-plus" || coding.Model.ID != "qwen3.7-plus" {
 		t.Fatalf("Bailian latest models = %q, %q", payg.Model.ID, coding.Model.ID)
 	}
-	for _, alias := range []string{"q37", "q37m", "qcn", "qcp", "qc37", "qc36", "qck25", "qcglm5", "qcm25", "qc35", "qc3m", "qccn", "qccp", "qcglm47"} {
+	for _, alias := range []string{"q37", "q37m", "q36", "q36f", "q35f", "qcn", "qcp", "qc37", "qc36", "qck25", "qcglm5", "qcm25", "qc35", "qc3m", "qccn", "qccp", "qcglm47"} {
 		if _, ok := idx[alias]; !ok {
 			t.Fatalf("Bailian model alias %q missing", alias)
 		}
@@ -168,7 +168,7 @@ func TestOpenRouterCatalogUsesCuratedToolCapableModels(t *testing.T) {
 	if openrouter.Model.ID != "anthropic/claude-sonnet-5" {
 		t.Fatalf("OpenRouter latest model = %q", openrouter.Model.ID)
 	}
-	for _, alias := range []string{"ors5", "oro48", "ors46", "org56", "orqcn", "orglm52", "ork3", "orm3"} {
+	for _, alias := range []string{"ors5", "oro5", "oro5f", "oro48", "ors46", "org56", "orq37f", "orqcn", "orglm52", "ork3", "orm3"} {
 		resolved, ok := idx[alias]
 		if !ok || resolved.Prov.providerID() != "openrouter" {
 			t.Fatalf("OpenRouter model alias %q = %#v", alias, resolved)
@@ -199,9 +199,10 @@ func TestKimiAliasesSeparateAPIAndCodingPlans(t *testing.T) {
 	isolatedConfig(t)
 	idx := buildIndex()
 	apiModels := map[string]string{
-		"k":   "kimi-k3",
-		"k27": "kimi-k2.7-code",
-		"k26": "kimi-k2.6",
+		"k":    "kimi-k3",
+		"k27":  "kimi-k2.7-code",
+		"k27h": "kimi-k2.7-code-highspeed",
+		"k26":  "kimi-k2.6",
 	}
 	for alias, model := range apiModels {
 		resolved, ok := idx[alias]
@@ -1041,7 +1042,7 @@ func TestCatalogEvolutionPinsTrustFieldsAndVersionAliases(t *testing.T) {
 	retired := cloneCatalog(t, &embeddedCatalog)
 	retired.Revision = "2026-07-19.2"
 	retired.RetiredTags["glm47"] = catalogTagTrustIndex(&embeddedCatalog)["glm47"]
-	retired.Providers[0].Models = retired.Providers[0].Models[:2] // retire glm-4.7 / glm47
+	removeModelWithTag(t, retired, "glm47")
 	if err := validateCatalog(retired); err != nil {
 		t.Fatal(err)
 	}

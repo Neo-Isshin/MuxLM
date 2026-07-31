@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "revision": "2026-07-24.1",
+  "revision": "2026-07-30.1",
   "retired_tags": {
     "doubao-code": "doubao/standard/doubao-seed-code-preview-latest",
     "k3": "kimi/coding/k3",
@@ -22,7 +22,11 @@
       "models": [
         {"id": "glm-5.2", "tag": "glm52", "source": "official", "latest": true},
         {"id": "glm-5.1", "tag": "glm51", "source": "official", "latest": false},
-        {"id": "glm-4.7", "tag": "glm47", "source": "official", "latest": false}
+        {"id": "glm-5v-turbo", "tag": "glm5v", "source": "official", "latest": false},
+        {"id": "glm-5", "tag": "glm5", "source": "official", "latest": false},
+        {"id": "glm-4.7", "tag": "glm47", "source": "official", "latest": false},
+        {"id": "glm-4.7-flashx", "tag": "glm47fx", "source": "official", "latest": false},
+        {"id": "glm-4.7-flash", "tag": "glm47f", "source": "official", "latest": false}
       ]
     },
     {
@@ -34,7 +38,13 @@
       "openai_url": "https://open.bigmodel.cn/api/coding/paas/v4",
       "key_env": "GLM_CODING_KEY",
       "cli": ["claude", "codex", "opencode"],
-      "models": [{"id": "glm-5.2", "tag": "", "source": "official", "latest": true}]
+      "models": [
+        {"id": "glm-5.2", "tag": "", "source": "official", "latest": true},
+        {"id": "glm-5v-turbo", "tag": "glmc5v", "source": "official", "latest": false},
+        {"id": "glm-5.1", "tag": "glmc51", "source": "official", "latest": false},
+        {"id": "glm-5-turbo", "tag": "glmc5t", "source": "official", "latest": false},
+        {"id": "glm-4.7", "tag": "glmc47", "source": "official", "latest": false}
+      ]
     },
     {
       "id": "kimi",
@@ -48,6 +58,7 @@
       "models": [
         {"id": "kimi-k3", "tag": "", "short": "k3", "source": "official", "latest": true},
         {"id": "kimi-k2.7-code", "tag": "k27", "source": "official", "latest": false},
+        {"id": "kimi-k2.7-code-highspeed", "tag": "k27h", "source": "official", "latest": false},
         {"id": "kimi-k2.6", "tag": "k26", "source": "official", "latest": false}
       ]
     },
@@ -76,7 +87,11 @@
       "models": [
         {"id": "MiniMax-M3", "tag": "", "short": "m3", "source": "official", "latest": true},
         {"id": "MiniMax-M2.7", "tag": "m27std", "source": "official", "latest": false},
-        {"id": "MiniMax-M2.7-highspeed", "tag": "m27", "source": "official", "latest": false}
+        {"id": "MiniMax-M2.7-highspeed", "tag": "m27", "source": "official", "latest": false},
+        {"id": "MiniMax-M2.5", "tag": "m25std", "source": "official", "latest": false},
+        {"id": "MiniMax-M2.5-highspeed", "tag": "m25", "source": "official", "latest": false},
+        {"id": "MiniMax-M2.1", "tag": "m21", "source": "official", "latest": false},
+        {"id": "MiniMax-M2", "tag": "m2", "source": "official", "latest": false}
       ]
     },
     {
@@ -129,7 +144,9 @@
       "models": [
         {"id": "deepseek-ai/DeepSeek-V4-Flash", "tag": "sfv4f", "short": "dsv4f", "source": "relay", "latest": true},
         {"id": "deepseek-ai/DeepSeek-V4-Pro", "tag": "sfv4p", "short": "dsv4p", "source": "relay", "latest": false},
-        {"id": "moonshotai/Kimi-K2.7-Code", "tag": "", "short": "k27", "source": "relay", "latest": false}
+        {"id": "moonshotai/Kimi-K2.7-Code", "tag": "", "short": "k27", "source": "relay", "latest": false},
+        {"id": "zai-org/GLM-5.2", "tag": "sfglm52", "short": "glm52", "source": "relay", "latest": false},
+        {"id": "Pro/moonshotai/Kimi-K2.6", "tag": "sfk26", "short": "k26", "source": "relay", "latest": false}
       ]
     },
     {
@@ -144,6 +161,9 @@
       "models": [
         {"id": "qwen3.7-plus", "tag": "q37", "source": "official", "latest": true},
         {"id": "qwen3.7-max", "tag": "q37m", "source": "official", "latest": false},
+        {"id": "qwen3.6-plus", "tag": "q36", "source": "official", "latest": false},
+        {"id": "qwen3.6-flash", "tag": "q36f", "source": "official", "latest": false},
+        {"id": "qwen3.5-flash", "tag": "q35f", "source": "official", "latest": false},
         {"id": "qwen3-coder-next", "tag": "qcn", "source": "official", "latest": false},
         {"id": "qwen3-coder-plus", "tag": "qcp", "source": "official", "latest": false}
       ]
@@ -180,9 +200,12 @@
       "cli": ["codex", "opencode"],
       "models": [
         {"id": "anthropic/claude-sonnet-5", "tag": "ors5", "short": "s5", "source": "relay", "latest": true},
+        {"id": "anthropic/claude-opus-5", "tag": "oro5", "short": "o5", "source": "relay", "latest": false},
+        {"id": "anthropic/claude-opus-5-fast", "tag": "oro5f", "short": "o5f", "source": "relay", "latest": false},
         {"id": "anthropic/claude-opus-4.8", "tag": "oro48", "short": "o48", "source": "relay", "latest": false},
         {"id": "anthropic/claude-sonnet-4.6", "tag": "ors46", "short": "s46", "source": "relay", "latest": false},
         {"id": "openai/gpt-5.6-sol", "tag": "org56", "short": "g56", "source": "relay", "latest": false},
+        {"id": "qwen/qwen3.7-flash", "tag": "orq37f", "short": "q37f", "source": "relay", "latest": false},
         {"id": "qwen/qwen3-coder-next", "tag": "orqcn", "short": "qcn", "source": "relay", "latest": false},
         {"id": "z-ai/glm-5.2", "tag": "orglm52", "short": "glm52", "source": "relay", "latest": false},
         {"id": "moonshotai/kimi-k3", "tag": "ork3", "short": "k3", "source": "relay", "latest": false},

@@ -145,6 +145,28 @@ func TestRetiredKimiVersionAliasesRemainTombstoned(t *testing.T) {
 	}
 }
 
+func TestCatalogGrowthFromPreviousRevisionIsAccepted(t *testing.T) {
+	previous := cloneCatalog(t, &embeddedCatalog)
+	previous.Revision = "2026-07-24.1"
+	for _, tag := range []string{
+		"glm5v", "glm5", "glm47fx", "glm47f",
+		"glmc5v", "glmc51", "glmc5t", "glmc47",
+		"k27h",
+		"m25std", "m25", "m21", "m2",
+		"sfglm52", "sfk26",
+		"q36", "q36f", "q35f",
+		"oro5", "oro5f", "orq37f",
+	} {
+		removeModelWithTag(t, previous, tag)
+	}
+	if err := validateCatalog(previous); err != nil {
+		t.Fatalf("previous catalog fixture is invalid: %v", err)
+	}
+	if err := validateCatalogEvolution(previous, &embeddedCatalog); err != nil {
+		t.Fatalf("previous release cannot accept the expanded catalog: %v", err)
+	}
+}
+
 func removeModelWithTag(t *testing.T, catalog *CatalogFile, tag string) {
 	t.Helper()
 	for providerIndex := range catalog.Providers {
