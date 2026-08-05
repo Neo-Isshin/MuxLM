@@ -25,7 +25,7 @@ MuxLM 是一个**轻量切换器,不是代理**:底层 CLI 直连你选的 provi
 - 一个二进制,三个入口:`cdx`、`cld`、`opc`
 - Catalog(模型/provider 列表)可独立更新,**离线也有缓存和内置版本兜底**
 - 既支持厂商官方来源,也支持中转来源,还支持自定义 provider
-- API key 优先保存在 macOS Keychain 或 Linux Secret Service
+- 默认以 0600 本地文件保存 API key；需要的话可通过 `MUXLM_SECRET_BACKEND=keychain`（macOS）或 `=secret-service`（Linux）打开系统密钥库
 - 支持具名 key、国内/海外线路切换
 - 无守护进程、无数据库、无 GUI、无协议代理
 
@@ -106,6 +106,7 @@ cdx glm --dry-run           # 只预览配置,不实际启动
 | `<入口> remove <别名>` | 删除本地 provider 配置 |
 | `<入口> update` | 更新模型列表(详见[更新](#更新)) |
 | `<入口> doctor` | 本地只读诊断 |
+| `<入口> audit-probes` | 用假 key 探测 catalog 中所有端点，验证协议路径 |
 | `<入口> version` | 显示程序与 catalog 版本 |
 | `<入口> --help` | 显示完整帮助 |
 
@@ -138,7 +139,7 @@ cld update                        # 立即更新模型列表
 
 - 子进程只拿到**当前 provider** 的 key,其它 provider key 会从环境中清理掉。
 - Codex 和 OpenCode 使用**一次性配置目录**,不会动你的全局配置。
-- API key 优先保存在 macOS Keychain 或 Linux Secret Service。
+- API key 默认存 0600 本地文件；想要切回系统密钥库可设 `MUXLM_SECRET_BACKEND=keychain`（macOS）或 `=secret-service`（Linux）。
 
 ## 进阶
 

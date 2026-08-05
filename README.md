@@ -25,7 +25,7 @@ All three are the **same binary**; only the default CLI differs. `cld` is also t
 - One binary, three entry points: `cdx`, `cld`, `opc`
 - The catalog (provider/model list) updates independently, and **works offline** via cache and an embedded fallback
 - Supports official provider routes, relay routes, and custom providers
-- API keys are stored in macOS Keychain or Linux Secret Service when available
+- API keys are stored in a local 0600 file by default; opt in to macOS Keychain or Linux Secret Service with `MUXLM_SECRET_BACKEND=keychain` / `=secret-service`
 - Named keys, domestic/international routes
 - No daemon, database, GUI, or protocol proxy
 
@@ -106,6 +106,7 @@ Any of `cdx`, `cld`, `opc` runs the management commands below (`<entry>` stands 
 | `<entry> remove <alias>` | Remove local provider configuration |
 | `<entry> update` | Update the model list (see [Updates](#updates)) |
 | `<entry> doctor` | Run local, read-only diagnostics |
+| `<entry> audit-probes` | Probe every catalog endpoint with a fake key to verify protocol paths |
 | `<entry> version` | Show app and catalog versions |
 | `<entry> --help` | Show full help |
 
@@ -138,7 +139,7 @@ MuxLM installed via the command in this README can update itself. If the current
 
 - The child process receives only the **selected provider's** key; other provider keys are removed from its environment.
 - Codex and OpenCode get **disposable configuration directories** — your global config is untouched.
-- API keys are stored in macOS Keychain or Linux Secret Service when available.
+- API keys live in a local 0600 file by default; opt back into system keychains via `MUXLM_SECRET_BACKEND=keychain` / `=secret-service`.
 
 ## Advanced
 

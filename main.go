@@ -23,6 +23,7 @@ const helpText = appName + ` — 快速切换 Claude Code / Codex / OpenCode 的
   <入口> def                  使用原生账号与默认模型
   <入口> list                 查看 provider / 模型别名
   <入口> doctor               检查模型列表、配置和依赖程序
+  <入口> audit-probes         用假 key 探测 catalog 中所有端点
   <入口> config               查看和管理 provider / key
   <入口> add                  添加 provider 或具名 key
   <入口> set-key <别名>       增加一把具名 key
@@ -84,6 +85,12 @@ func main() {
 			fail("doctor 不接受额外参数")
 		}
 		if err := runDoctor(os.Stdout); err != nil {
+			fail(err.Error())
+		}
+		return
+	}
+	if len(args) > 0 && args[0] == "audit-probes" {
+		if err := runAuditProbes(args[1:], os.Stdout); err != nil {
 			fail(err.Error())
 		}
 		return
@@ -302,7 +309,7 @@ func printQuickStart(prog, cli string) {
 
 func isReservedAlias(alias string) bool {
 	switch alias {
-	case "config", "add", "set-key", "remove", "update", "version", "doctor", "list", "ls", "help", "custom", "def":
+	case "config", "add", "set-key", "remove", "update", "version", "doctor", "audit-probes", "list", "ls", "help", "custom", "def":
 		return true
 	default:
 		return false
