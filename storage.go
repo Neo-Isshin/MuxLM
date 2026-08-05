@@ -358,11 +358,10 @@ func detectSecretBackend(
 	getenv func(string) string,
 	probe func() (bool, string),
 ) secretBackendChoice {
-	if goos == "darwin" {
-		if _, err := lookPath("security"); err == nil {
-			return secretBackendChoice{name: "keychain"}
-		}
-	}
+	// 默认是 file：0600 明文文件，无需任何系统密钥库，无需 GUI 授权，
+	// 也不会因为 macOS TCC（Sequoia/Sonoma 强制 Keychain 授权框）让用户卡住。
+	// 想要进入 Keychain 或 Secret Service 的用户通过 MUXLM_SECRET_BACKEND=keychain
+	// （或 secret-service）显式 opt-in，chooseSecretBackend() 在此之前已先命中该分支。
 	if goos == "linux" {
 		if _, err := lookPath("secret-tool"); err != nil {
 			return secretBackendChoice{name: "file", reason: "未找到 secret-tool"}
@@ -445,7 +444,18 @@ func secretSetWithBackend(providerID, ref, value, backend string) (string, error
 	switch backend {
 	case "keychain":
 		// #nosec G204 -- 可执行文件固定，ref 由程序生成并在读取元数据时严格校验。
-		cmd := exec.Command("security", "add-generic-password", "-U", "-a", ref, "-s", secretService, "-w")
+		//
+		// -T /当前二进制路径：把 muxlm 登记为这个 keychain 条目的持久 ACL；
+		//   macOS Sequoia/Sonoma/部分 Monterey 即便带了 -w 也会被 TCC 框架弹一个
+		//   "password data for new item" GUI 授权框，把 stdin 完全劫持。写一次
+		//   ACL 之后同一二进制对该条目的后续读/写都不会再弹。-A 是"任何程序"
+		//   （不安全），绝不要用；-T 才是限定可执行文件的选项。
+		args := []string{"add-generic-password", "-U", "-a", ref, "-s", secretService}
+		if exe, err := os.Executable(); err == nil && filepath.IsAbs(exe) {
+			args = append(args, "-T", exe)
+		}
+		args = append(args, "-w")
+		cmd := exec.Command("security", args...)
 		// -w 不带参数可避免 key 进入进程列表；security 会要求输入两次确认。
 		cmd.Stdin = strings.NewReader(keychainPasswordInput(value))
 		if out, err := cmd.CombinedOutput(); err != nil {

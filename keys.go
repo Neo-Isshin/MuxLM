@@ -327,10 +327,18 @@ func addNamedKey(p *Provider, region, cli, model string) (string, error) {
 				fmt.Fprintln(os.Stderr, "↻ 检测未通过，请重新输入 key")
 				continue
 			}
-		} else if note, bad := checkKey(p, cli, model, intl, val); bad {
+		} else if note, bad, ambig := checkKey(p, cli, model, intl, val); bad {
 			fmt.Fprintln(os.Stderr, note)
 			fmt.Fprintln(os.Stderr, "↻ key 无效，请重新输入")
 			continue
+		} else if ambig {
+			fmt.Fprintln(os.Stderr, note)
+			fmt.Fprintln(os.Stderr, "⚠ 探测未能确认 key 是否有效。请确认后再保存。")
+			confirm := strings.ToLower(promptLine("仍然要保存这个 key 吗？输入 yes 强制保存 [no]: "))
+			if confirm != "yes" {
+				fmt.Fprintln(os.Stderr, "已取消，请重新输入。")
+				continue
+			}
 		} else if note != "" {
 			fmt.Fprintln(os.Stderr, note)
 		}
@@ -349,9 +357,11 @@ func addNamedKey(p *Provider, region, cli, model string) (string, error) {
 		return "", err
 	}
 	if backend == "file" {
-		fmt.Fprintln(os.Stderr, "⚠ 系统密钥库不可用；key 已以明文存入 600 权限文件")
+		fmt.Fprintln(os.Stderr, "✓ 已以 0600 权限存入本地文件 ~/.config/muxlm/providers/<provider>/secrets.json")
+		fmt.Fprintln(os.Stderr, "  如需切换到 macOS Keychain / Linux Secret Service，可设 MUXLM_SECRET_BACKEND=keychain（macOS）或 =secret-service（Linux）后重存")
+	} else {
+		fmt.Fprintf(os.Stderr, "✓ 已保存 key %q [%s]\n", name, backend)
 	}
-	fmt.Fprintf(os.Stderr, "✓ 已保存 key %q [%s]\n", name, backend)
 	return val, nil
 }
 
@@ -395,22 +405,33 @@ func nextKeyName(existing []string) string {
 	}
 }
 
-func checkKey(p *Provider, cli, model string, intl bool, key string) (note string, badKey bool) {
+func checkKey(p *Provider, cli, model string, intl bool, key string) (note string, badKey, ambiguous bool) {
 	proto, base := keyProbeTarget(p, cli, intl)
 	if base == "" {
-		return "", false
+		return "", false, false
 	}
 	fmt.Fprintln(os.Stderr, "检测 key…")
 	reachable, code, msg := probe(proto, base, model, key)
 	switch {
 	case reachable && (code == 401 || code == 403):
-		return msg, true
+		// 服务端明确拒绝：key 无效或无权限。
+		return msg, true, false
+	case reachable && code >= 200 && code < 300:
+		// 探测通过。
+		return "", false, false
 	case !reachable:
-		return "⚠ 暂时连不上端点，已保存 key（若实际启动失败再核对）", false
-	case code < 200 || code >= 300:
-		return msg + "（key 鉴权已通过，已保存）", false
+		// 网络/DNS 故障或超时：探测没拿到任何 HTTP 响应。
+		// 这种情况下不能证明 key 是否有效，必须由显式确认才能保存。
+		return "⚠ 暂时连不上端点；无法确认 key 是否有效", false, true
 	default:
-		return "", false
+		// 拿到了 HTTP 响应但既不是 2xx 也不是 401/403，例如：
+		//   400 — 请求格式错（model id 缺失/错误、参数异常），key 未必错
+		//   404 — 端点路径不对
+		//   429 — 限流
+		//   5xx — 上游故障
+		// 这些都不能证明 key 有效。旧逻辑在这里说"鉴权已通过，已保存"是误判；
+		// 现在改为显式确认，由调用方提示用户。
+		return msg + "（探测未返回 2xx/401-403，无法证明 key 有效）", false, true
 	}
 }
 

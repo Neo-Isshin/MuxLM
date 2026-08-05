@@ -20,6 +20,26 @@ import (
 	"time"
 )
 
+// captureStderr 捕获 fn 写入 os.Stderr 的全部内容并返回。
+func captureStderr(t *testing.T, fn func()) string {
+	t.Helper()
+	old := os.Stderr
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stderr = w
+	fn()
+	_ = w.Close()
+	os.Stderr = old
+	out, err := io.ReadAll(r)
+	_ = r.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(out)
+}
+
 func isolatedConfig(t *testing.T) string {
 	t.Helper()
 	d := t.TempDir()
@@ -1716,4 +1736,189 @@ func captureStdout(t *testing.T, fn func()) string {
 		t.Fatal(err)
 	}
 	return string(out)
+}
+
+// TestCheckKeyClassification pins the three-way decision of checkKey so the
+// "401/403 means bad, 2xx means pass, anything else is ambiguous" contract
+// cannot silently regress — that ambiguity used to be mislabelled as
+// "鉴权已通过，已保存" and let a wrong key through.
+func TestCheckKeyClassification(t *testing.T) {
+	type want struct {
+		bad        bool
+		ambiguous  bool
+		noteEmpty  bool
+		noteSubstr string
+	}
+	cases := []struct {
+		name   string
+		status int
+		want   want
+	}{
+		{
+			name:   "401 返回时拒绝（key 无效）",
+			status: http.StatusUnauthorized,
+			want:   want{bad: true, ambiguous: false, noteEmpty: false, noteSubstr: "key"},
+		},
+		{
+			name:   "403 返回时拒绝（key 无权限）",
+			status: http.StatusForbidden,
+			want:   want{bad: true, ambiguous: false, noteEmpty: false, noteSubstr: "key"},
+		},
+		{
+			name:   "200 视为通过",
+			status: http.StatusOK,
+			want:   want{bad: false, ambiguous: false, noteEmpty: true},
+		},
+		{
+			name:   "204 视为通过",
+			status: http.StatusNoContent,
+			want:   want{bad: false, ambiguous: false, noteEmpty: true},
+		},
+		{
+			name:   "400 视为 ambiguous（请求格式错）",
+			status: http.StatusBadRequest,
+			want:   want{bad: false, ambiguous: true, noteEmpty: false, noteSubstr: "无法证明 key 有效"},
+		},
+		{
+			name:   "404 视为 ambiguous（端点路径不对）",
+			status: http.StatusNotFound,
+			want:   want{bad: false, ambiguous: true, noteEmpty: false, noteSubstr: "无法证明 key 有效"},
+		},
+		{
+			name:   "429 视为 ambiguous（限流）",
+			status: http.StatusTooManyRequests,
+			want:   want{bad: false, ambiguous: true, noteEmpty: false, noteSubstr: "无法证明 key 有效"},
+		},
+		{
+			name:   "500 视为 ambiguous（上游故障）",
+			status: http.StatusInternalServerError,
+			want:   want{bad: false, ambiguous: true, noteEmpty: false, noteSubstr: "无法证明 key 有效"},
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(c.status)
+				_, _ = w.Write([]byte(`{"error":"x"}`))
+			}))
+			defer srv.Close()
+			p := &Provider{
+				ID:        "probe-target",
+				Plan:      "standard",
+				ClaudeURL: srv.URL,
+			}
+			stderr := captureStderr(t, func() {
+				note, bad, ambig := checkKey(p, "claude", "test-model", false, "secret")
+				if bad != c.want.bad {
+					t.Fatalf("badKey = %v, want %v (note=%q)", bad, c.want.bad, note)
+				}
+				if ambig != c.want.ambiguous {
+					t.Fatalf("ambiguous = %v, want %v (note=%q)", ambig, c.want.ambiguous, note)
+				}
+				if (note == "") != c.want.noteEmpty {
+					t.Fatalf("note empty = %v, want %v (note=%q)", note == "", c.want.noteEmpty, note)
+				}
+				if c.want.noteSubstr != "" && !strings.Contains(note, c.want.noteSubstr) {
+					t.Fatalf("note %q does not contain %q", note, c.want.noteSubstr)
+				}
+				// 旧 bug 的反向断言：除 ambiguous=true 的情形外，note 绝不能含
+				// "鉴权已通过" 这种误导文字。
+				if !ambig && strings.Contains(note, "鉴权已通过") {
+					t.Fatalf("note %q 含误导文案 '鉴权已通过'", note)
+				}
+			})
+			if !strings.Contains(stderr, "检测 key") {
+				t.Fatalf("stderr 应包含 '检测 key'，实际=%q", stderr)
+			}
+		})
+	}
+}
+
+// TestCheckKeyUnreachableIsAmbiguous covers the network/DNS failure path:
+// probe() can't reach the endpoint, so the result must NOT be a clean pass.
+// Old code returned false/false in this case and labelled the key "saved".
+func TestCheckKeyUnreachableIsAmbiguous(t *testing.T) {
+	p := &Provider{
+		ID:        "unreachable",
+		Plan:      "standard",
+		ClaudeURL: "http://127.0.0.1:1/never-listens", // 立刻 RST
+	}
+	stderr := captureStderr(t, func() {
+		_, bad, ambig := checkKey(p, "claude", "test-model", false, "secret")
+		if !ambig {
+			t.Fatalf("unreachable 必须 ambiguous=true（防误保存），got bad=%v ambig=%v", bad, ambig)
+		}
+		if bad {
+			t.Fatalf("unreachable 不应同时是 badKey=true")
+		}
+	})
+	if !strings.Contains(stderr, "检测 key") {
+		t.Fatalf("stderr 应包含 '检测 key'，实际=%q", stderr)
+	}
+}
+
+func TestIsSuspiciousProbeMatchesCheckKey(t *testing.T) {
+	// isSuspiciousProbe 必须与 checkKey 的分类一致：2xx 与 401/403 不算可疑，
+	// 其余一律可疑——否则 audit-probes 会与运行时实际行为不一致。
+	cases := []struct {
+		name      string
+		reachable bool
+		code      int
+		want      bool
+	}{
+		{"unreachable", false, 0, true},
+		{"401 not suspicious", true, 401, false},
+		{"403 not suspicious", true, 403, false},
+		{"200 not suspicious", true, 200, false},
+		{"204 not suspicious", true, 204, false},
+		{"400 suspicious", true, 400, true},
+		{"404 suspicious", true, 404, true},
+		{"429 suspicious", true, 429, true},
+		{"500 suspicious", true, 500, true},
+		{"502 suspicious", true, 502, true},
+	}
+	for _, tc := range cases {
+		if got := isSuspiciousProbe(tc.reachable, tc.code); got != tc.want {
+			t.Errorf("%s: reachable=%v code=%d → got=%v want=%v",
+				tc.name, tc.reachable, tc.code, got, tc.want)
+		}
+	}
+}
+
+func TestAuditProbesRejectsUnknownArgs(t *testing.T) {
+	var buf bytes.Buffer
+	if err := runAuditProbes([]string{"bogus"}, &buf); err == nil {
+		t.Fatal("audit-probes 应拒绝未知参数")
+	}
+}
+
+func TestAuditProbesProviderFlagRequiresValue(t *testing.T) {
+	var buf bytes.Buffer
+	if err := runAuditProbes([]string{"-p"}, &buf); err == nil {
+		t.Fatal("-p 应要求参数")
+	}
+}
+
+func TestPickAuditModelPrefersLatestThenShort(t *testing.T) {
+	p := &Provider{
+		Models: []Model{
+			{ID: "short-only", Short: "so"},
+			{ID: "latest-one", Latest: true},
+		},
+	}
+	if got := pickAuditModel(p); got != "latest-one" {
+		t.Fatalf("有 Latest 时应选 latest，实得 %q", got)
+	}
+	p = &Provider{
+		Models: []Model{
+			{ID: "a"},
+			{ID: "short-id", Short: "sx"},
+		},
+	}
+	if got := pickAuditModel(p); got != "short-id" {
+		t.Fatalf("无 Latest 时应选有 Short 的，实得 %q", got)
+	}
+	if got := pickAuditModel(&Provider{}); got != "" {
+		t.Fatalf("无 model 时应返回空，实得 %q", got)
+	}
 }
