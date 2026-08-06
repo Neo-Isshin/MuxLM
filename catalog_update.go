@@ -854,9 +854,9 @@ func runCatalogUpdate() error {
 		return err
 	}
 	if r.Updated {
-		fmt.Printf("✓ 模型列表已更新（版本 %s，共 %d 个服务商）\n", r.Revision, r.ProviderCount)
+		fmt.Printf(tr("✓ 模型列表已更新（版本 %s，共 %d 个服务商）\n", "✓ Model catalog updated (revision %s, %d providers)\n"), r.Revision, r.ProviderCount)
 		return nil
 	}
-	fmt.Printf("✓ 模型列表已是最新（版本 %s，共 %d 个服务商）\n", r.Revision, r.ProviderCount)
+	fmt.Printf(tr("✓ 模型列表已是最新（版本 %s，共 %d 个服务商）\n", "✓ Model catalog is current (revision %s, %d providers)\n"), r.Revision, r.ProviderCount)
 	return nil
 }

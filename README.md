@@ -110,6 +110,10 @@ Any of `cdx`, `cld`, `opc` runs the management commands below (`<entry>` stands 
 | `<entry> version` | Show app and catalog versions |
 | `<entry> --help` | Show full help |
 
+### Interface language
+
+MuxLM automatically uses Chinese for a Chinese system locale and English for an English locale. Other system languages fall back to English. Run `cld config` and choose **Language / 语言** to select Auto, English, or 中文; the choice is saved in `settings.json`. For scripts, `MUXLM_LANG=en|zh|auto` temporarily overrides the saved choice.
+
 ## Updates
 
 Four forms, each with one clear purpose:

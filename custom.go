@@ -43,7 +43,7 @@ func loadCustomProfiles() []Provider {
 				out = append(out, f.Provider)
 				seen[f.Provider.Alias] = true
 			} else {
-				fmt.Fprintf(os.Stderr, "⚠ 忽略无效自定义 provider: %s\n", entry.Name())
+				fmt.Fprintf(os.Stderr, tr("⚠ 忽略无效自定义 provider: %s\n", "⚠ Ignored invalid custom provider: %s\n"), entry.Name())
 			}
 		}
 	}
@@ -67,16 +67,16 @@ func loadCustomProfiles() []Provider {
 
 func validateStoredCustomProvider(p *Provider, dirName string) error {
 	if p.ID != dirName || !strings.HasPrefix(p.ID, "custom-") || safeID(p.ID) != p.ID {
-		return fmt.Errorf("非法 provider id")
+		return fmt.Errorf(tr("非法 provider id", "invalid provider ID"))
 	}
 	if p.Alias == "" || safeID(p.Alias) != p.Alias || p.Plan != "custom" {
-		return fmt.Errorf("非法 alias/plan")
+		return fmt.Errorf(tr("非法 alias/plan", "invalid alias/plan"))
 	}
 	if !validEnvName(p.KeyEnv) || p.Key != "" {
-		return fmt.Errorf("非法 key 元数据")
+		return fmt.Errorf(tr("非法 key 元数据", "invalid key metadata"))
 	}
 	if len(p.Models) != 1 || p.Models[0].ID == "" || !p.Models[0].Latest {
-		return fmt.Errorf("自定义 provider 必须有一个 latest model")
+		return fmt.Errorf(tr("自定义 provider 必须有一个 latest model", "custom provider must have exactly one latest model"))
 	}
 	endpoints := 0
 	for _, endpoint := range []string{p.ClaudeURL, p.OpenAIURL} {
@@ -89,11 +89,11 @@ func validateStoredCustomProvider(p *Provider, dirName string) error {
 		}
 	}
 	if endpoints != 1 {
-		return fmt.Errorf("自定义 provider 必须有一个端点")
+		return fmt.Errorf(tr("自定义 provider 必须有一个端点", "custom provider must have an endpoint"))
 	}
 	for _, cli := range p.CLI {
 		if cli != "claude" && cli != "codex" && cli != "opencode" {
-			return fmt.Errorf("非法 CLI")
+			return fmt.Errorf(tr("非法 CLI", "invalid CLI"))
 		}
 	}
 	return nil
@@ -116,7 +116,7 @@ func profileToProvider(name string, c CustomProfile) Provider {
 	p := Provider{
 		ID:     "custom-" + safeID(name),
 		Alias:  name,
-		Name:   "自定义 · " + hostOf(c.Base),
+		Name:   tr("自定义 · ", "Custom · ") + hostOf(c.Base),
 		Plan:   "custom",
 		KeyEnv: "MUXLM_" + strings.ToUpper(strings.ReplaceAll(safeID(name), "-", "_")) + "_KEY",
 		Key:    c.Key,
@@ -141,7 +141,7 @@ func cliForProtocol(proto string) []string {
 
 // runCustom 保留 v1 命令兼容，新实现统一转到 add。
 func runCustom(cli string, skip bool, pass []string) error {
-	fmt.Fprintln(os.Stderr, "`custom` 已合并到 `add`；本次只保存 provider，不会自动启动底层 CLI。")
+	fmt.Fprintln(os.Stderr, tr("`custom` 已合并到 `add`；本次只保存 provider，不会自动启动底层 CLI。", "`custom` is now part of `add`; this command saves the provider without launching the underlying CLI."))
 	return runAddCustom(cli)
 }
 
@@ -153,14 +153,14 @@ func probe(protocol, base, model, key string) (reachable bool, code int, msg str
 		Timeout: 20 * time.Second,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			if len(via) >= 3 {
-				return fmt.Errorf("端点重定向过多")
+				return fmt.Errorf(tr("端点重定向过多", "too many endpoint redirects"))
 			}
 			origin := via[0].URL
 			if !strings.EqualFold(req.URL.Host, origin.Host) {
-				return fmt.Errorf("拒绝跨域端点重定向")
+				return fmt.Errorf(tr("拒绝跨域端点重定向", "cross-origin endpoint redirect refused"))
 			}
 			if origin.Scheme == "https" && req.URL.Scheme != "https" {
-				return fmt.Errorf("拒绝 HTTPS 降级重定向")
+				return fmt.Errorf(tr("拒绝 HTTPS 降级重定向", "HTTPS downgrade redirect refused"))
 			}
 			return nil
 		},
@@ -214,21 +214,21 @@ func probe(protocol, base, model, key string) (reachable bool, code int, msg str
 // statusMsg 把 可达性 + HTTP 状态码 翻成人读说明（不判定通过与否）。
 func statusMsg(reachable bool, code int) string {
 	if !reachable {
-		return "✗ 连不上端点（网络错误或超时）"
+		return tr("✗ 连不上端点（网络错误或超时）", "✗ Endpoint unreachable (network error or timeout)")
 	}
 	switch {
 	case code >= 200 && code < 300:
-		return fmt.Sprintf("✓ 可用（HTTP %d）", code)
+		return fmt.Sprintf(tr("✓ 可用（HTTP %d）", "✓ Available (HTTP %d)"), code)
 	case code == 401 || code == 403:
-		return fmt.Sprintf("✗ key 无效或无权限（HTTP %d）", code)
+		return fmt.Sprintf(tr("✗ key 无效或无权限（HTTP %d）", "✗ Invalid or unauthorized key (HTTP %d)"), code)
 	case code == 404:
-		return "✗ 端点路径不对（HTTP 404）—— 检查 base URL"
+		return tr("✗ 端点路径不对（HTTP 404）—— 检查 base URL", "✗ Endpoint path not found (HTTP 404) — check the base URL")
 	case code == 400 || code == 422:
-		return fmt.Sprintf("⚠ 鉴权通过但请求被拒（HTTP %d）—— 多半是 model id 不对", code)
+		return fmt.Sprintf(tr("⚠ 鉴权通过但请求被拒（HTTP %d）—— 多半是 model id 不对", "⚠ Authentication passed but request was rejected (HTTP %d) — the model ID may be wrong"), code)
 	case code == 429:
-		return "⚠ 触发限流（HTTP 429）—— 端点可用，但请降低频率/检查额度"
+		return tr("⚠ 触发限流（HTTP 429）—— 端点可用，但请降低频率/检查额度", "⚠ Rate limited (HTTP 429) — reduce request frequency or check quota")
 	default:
-		return fmt.Sprintf("✗ 异常状态（HTTP %d）", code)
+		return fmt.Sprintf(tr("✗ 异常状态（HTTP %d）", "✗ Unexpected status (HTTP %d)"), code)
 	}
 }
 
@@ -270,7 +270,7 @@ func readHiddenPrompt(prompt string) (string, error) {
 
 // promptProtocol 让用户选 openai / anthropic，默认 openai。
 func promptProtocol() string {
-	fmt.Fprint(os.Stderr, "端点协议 [1]openai（默认，回车） [2]anthropic: ")
+	fmt.Fprint(os.Stderr, tr("端点协议 [1]openai（默认，回车） [2]anthropic: ", "Endpoint protocol [1]openai (default, Enter) [2]anthropic: "))
 	s := promptLine("")
 	if s == "2" || strings.Contains(strings.ToLower(s), "anthropic") {
 		return "anthropic"

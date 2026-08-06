@@ -20,6 +20,12 @@ import (
 	"time"
 )
 
+func TestMain(m *testing.M) {
+	_ = os.Setenv("MUXLM_LANG", "zh")
+	reloadUILanguage()
+	os.Exit(m.Run())
+}
+
 // captureStderr 捕获 fn 写入 os.Stderr 的全部内容并返回。
 func captureStderr(t *testing.T, fn func()) string {
 	t.Helper()
@@ -45,6 +51,9 @@ func isolatedConfig(t *testing.T) string {
 	d := t.TempDir()
 	t.Setenv("MUXLM_CONFIG_DIR", filepath.Join(d, "config"))
 	t.Setenv("MUXLM_SECRET_BACKEND", "file")
+	t.Setenv("MUXLM_LANG", "zh")
+	reloadUILanguage()
+	t.Cleanup(reloadUILanguage)
 	return d
 }
 
@@ -699,7 +708,7 @@ printf '%s' "$*" > "$CAPTURE_DIR/$name.args"
 			t.Fatalf("default preview missing %q:\n%s", want, previewOutput)
 		}
 	}
-	if !isReservedAlias("def") || !strings.Contains(helpText, "cld def") {
+	if !isReservedAlias("def") || !strings.Contains(helpText(), "cld def") {
 		t.Fatal("def is not reserved and discoverable")
 	}
 	listOutput := captureStdout(t, printTable)

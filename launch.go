@@ -47,7 +47,7 @@ func launchClaude(p *Provider, model string, skip, intl bool, pass []string) err
 	}
 	url := p.claudeURL(intl)
 	if url == "" {
-		return fmt.Errorf("%s 没有 claude(anthropic) 端点", p.Name)
+		return fmt.Errorf(tr("%s 没有 claude(anthropic) 端点", "%s has no Claude (Anthropic) endpoint"), p.Name)
 	}
 	_, env := claudeLaunchSettings(p, model, url, key)
 	args := []string{"--model", claudeModel}
@@ -106,7 +106,7 @@ func launchCodex(p *Provider, model string, skip, intl bool, pass []string) erro
 	}
 	url := p.openaiURL(intl)
 	if url == "" {
-		return fmt.Errorf("%s 没有 codex(openai) 端点", p.Name)
+		return fmt.Errorf(tr("%s 没有 codex(openai) 端点", "%s has no Codex (OpenAI) endpoint"), p.Name)
 	}
 	dir, err := os.MkdirTemp("", "muxlm-codex-*")
 	if err != nil {
@@ -152,7 +152,7 @@ func launchOpencode(p *Provider, model string, skip, intl bool, pass []string) e
 		npm = "@ai-sdk/anthropic"
 	}
 	if url == "" {
-		return fmt.Errorf("%s 没有可用端点", p.Name)
+		return fmt.Errorf(tr("%s 没有可用端点", "%s has no usable endpoint"), p.Name)
 	}
 	dir, err := os.MkdirTemp("", "muxlm-opencode-*")
 	if err != nil {
@@ -257,7 +257,7 @@ func preview(cli string, p *Provider, model string, skip, intl bool, pass []stri
 	// key 来源描述：自定义别名是内联 key，其它走 env（按区域）
 	var keyDesc string
 	if p.Key != "" {
-		keyDesc = "内联（旧版自定义配置）"
+		keyDesc = tr("内联（旧版自定义配置）", "inline (legacy custom configuration)")
 	} else {
 		envName := p.keyEnv(intl)
 		status := configuredKeyStatus(p, intl)
@@ -271,7 +271,7 @@ func preview(cli string, p *Provider, model string, skip, intl bool, pass []stri
 	if skip {
 		mode += ", unsafe"
 	}
-	fmt.Printf("DRY RUN  %s → %s / %s [%s]\n", cli, p.Name, model, mode)
+	fmt.Printf("DRY RUN  %s → %s / %s [%s]\n", cli, localizedProviderName(p.Name), model, mode)
 	fmt.Printf("key      %s\n", keyDesc)
 	switch cli {
 	case "claude":
@@ -284,7 +284,7 @@ func preview(cli string, p *Provider, model string, skip, intl bool, pass []stri
 		tokenSrc := "$" + p.keyEnv(intl)
 		if p.Key != "" {
 			// #nosec G101 -- 仅为脱敏状态标签，不是凭据。
-			tokenSrc = "(内联)"
+			tokenSrc = tr("(内联)", "(inline)")
 		}
 		fmt.Printf("  env  ANTHROPIC_BASE_URL=%s  ANTHROPIC_AUTH_TOKEN=%s\n", p.claudeURL(intl), tokenSrc)
 		fmt.Printf("  run  claude %s\n", joinArgs(args))
@@ -314,7 +314,7 @@ func preview(cli string, p *Provider, model string, skip, intl bool, pass []stri
 }
 
 func previewDefault(cli string, skip bool, pass []string) {
-	fmt.Printf("DRY RUN  %s → 默认账号 / 默认模型\n", cli)
+	fmt.Printf(tr("DRY RUN  %s → 默认账号 / 默认模型\n", "DRY RUN  %s → native account / default model\n"), cli)
 	args := joinArgs(defaultLaunchArgs(cli, skip, pass))
 	if args == "" {
 		fmt.Printf("  run  %s\n", cli)
@@ -358,9 +358,9 @@ func configuredKeyStatus(p *Provider, intl bool) string {
 	}
 	c, err := keyCandidates(p, region)
 	if err != nil || len(c) == 0 {
-		return "未设置(将交互输入)"
+		return tr("未设置(将交互输入)", "not set (will prompt)")
 	}
-	return fmt.Sprintf("已设置(%d个)", len(c))
+	return fmt.Sprintf(tr("已设置(%d个)", "configured (%d)"), len(c))
 }
 
 // childEnv 只传递当前 provider 需要的密钥，避免底层 CLI/插件继承其他 provider key。
