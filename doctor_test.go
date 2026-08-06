@@ -139,7 +139,7 @@ func TestDoctorMissingCLIsAreWarnings(t *testing.T) {
 	if err := runDoctor(&out); err != nil {
 		t.Fatalf("missing optional CLIs returned an error: %v\n%s", err, out.String())
 	}
-	if got := strings.Count(out.String(), "⚠ not found"); got != 3 {
+	if got := strings.Count(out.String(), tr("⚠ 未找到", "⚠ not found")); got != 3 {
 		t.Fatalf("missing CLI warnings=%d:\n%s", got, out.String())
 	}
 	if !strings.Contains(out.String(), "status    ✓ OK (3 warning(s))") {

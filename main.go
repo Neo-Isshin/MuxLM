@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-const helpText = appName + ` — 快速切换 Claude Code / Codex / OpenCode 的 provider 与模型
+const helpTextZH = appName + ` — 快速切换 Claude Code / Codex / OpenCode 的 provider 与模型
 
 用法:
   cdx|cld|opc def [选项] [-- <底层 CLI 参数...>]
@@ -60,6 +60,61 @@ def 不使用 MuxLM provider，直接回到对应 CLI 的原生账号、配置�
 来源短名始终使用该来源的最新模型；原有版本别名仍对应固定模型。
 `
 
+const helpTextEN = appName + ` — Quickly switch providers and models for Claude Code, Codex, and OpenCode
+
+Usage:
+  cdx|cld|opc def [options] [-- <underlying CLI arguments...>]
+  cdx|cld|opc <model shortcut> [options] [-- <underlying CLI arguments...>]
+  cdx|cld|opc <source shortcut> [model shortcut] [options] [-- <underlying CLI arguments...>]
+
+Entry points:
+  cdx <alias>   Use Codex
+  cld <alias>   Use Claude Code
+  opc <alias>   Use OpenCode
+
+Commands:
+  <entry> def                  Use the native account and default model
+  <entry> list                 List providers and model aliases
+  <entry> doctor               Check the catalog, configuration, and dependencies
+  <entry> audit-probes         Probe all catalog endpoints with a dummy key
+  <entry> config               View and manage providers, keys, and language
+  <entry> add                  Add a provider or named key
+  <entry> set-key <alias>      Add another named key
+  <entry> remove <alias>       Remove local provider configuration
+  <entry> update               Update the model catalog
+  <entry> update --tool        Update detected Codex / Claude Code / OpenCode tools
+  <entry> update --self        Update MuxLM
+  <entry> update --all         Update everything
+  <entry> version              Show MuxLM and catalog versions
+
+Options:
+  -m, --model <id>            Temporarily override the model ID
+      --intl                  Use the international endpoint
+  -y, --yes                   Skip the underlying CLI safety confirmation (dangerous)
+      --dry-run               Preview without launching the underlying CLI
+  -h, --help                  Show help
+
+Examples:
+  cld def                     Claude Code native subscription and default model
+  cdx def                     Codex native account and default model
+  opc def                     OpenCode native configuration and default model
+  cld k3                      Claude Code + official Kimi K3
+  cld sf k27                  Claude Code + Kimi K2.7 through SiliconFlow
+  cld glm                     Claude Code + latest GLM
+  cld qc                      Claude Code + Bailian Coding Plan
+  cdx q                       Codex + latest Qwen
+  opc or                      OpenCode + OpenRouter
+  cdx m --intl                Codex + MiniMax international endpoint
+  opc ds -m deepseek-v4-pro   OpenCode + a specific model
+  cld glm -- "fix the bug"    Pass arguments after -- to Claude Code
+
+def bypasses MuxLM providers and uses the selected CLI's native account, configuration, and default model.
+A model shortcut uses its official source. After a source shortcut, models are resolved only within that source.
+A source shortcut follows that source's latest model; existing version aliases remain pinned.
+`
+
+func helpText() string { return tr(helpTextZH, helpTextEN) }
+
 func main() {
 	prog := filepath.Base(os.Args[0])
 	args := os.Args[1:]
@@ -82,7 +137,7 @@ func main() {
 	// doctor 必须保持纯本地、只读，因此在启动更新门之前处理。
 	if len(args) > 0 && args[0] == "doctor" {
 		if len(args) != 1 {
-			fail("doctor 不接受额外参数")
+			fail(tr("doctor 不接受额外参数", "doctor does not accept additional arguments"))
 		}
 		if err := runDoctor(os.Stdout); err != nil {
 			fail(err.Error())
@@ -102,26 +157,26 @@ func main() {
 
 	if len(args) > 0 && (args[0] == "version" || args[0] == "--version") {
 		if len(args) != 1 {
-			fail("version 不接受额外参数")
+			fail(tr("version 不接受额外参数", "version does not accept additional arguments"))
 		}
 		printVersion()
 		return
 	}
 	if len(args) == 0 {
 		if cli == "" {
-			fmt.Print(helpText)
+			fmt.Print(helpText())
 		} else {
 			printQuickStart(prog, cli)
 		}
 		return
 	}
 	if isHelpCommand(args) {
-		fmt.Print(helpText)
+		fmt.Print(helpText())
 		return
 	}
 	if args[0] == "list" || args[0] == "ls" {
 		if len(args) != 1 {
-			fail("list 不接受额外参数")
+			fail(tr("list 不接受额外参数", "list does not accept additional arguments"))
 		}
 		printTable()
 		return
@@ -129,14 +184,14 @@ func main() {
 
 	// argv[0] 决定目标 CLI：cdx→codex, cld→claude, opc→opencode
 	if cli == "" {
-		fail("muxlm 不能直接启动模型；请使用 cdx / cld / opc\n例如: cdx glm")
+		fail(tr("muxlm 不能直接启动模型；请使用 cdx / cld / opc\n例如: cdx glm", "muxlm cannot launch a model directly; use cdx / cld / opc\nExample: cdx glm"))
 	}
 
 	if len(args) > 0 {
 		switch args[0] {
 		case "config":
 			if len(args) != 1 {
-				fail("config 不接受额外参数")
+				fail(tr("config 不接受额外参数", "config does not accept additional arguments"))
 			}
 			if err := runConfig(cli); err != nil {
 				fail(err.Error())
@@ -144,7 +199,7 @@ func main() {
 			return
 		case "add":
 			if len(args) != 1 {
-				fail("add 不接受额外参数")
+				fail(tr("add 不接受额外参数", "add does not accept additional arguments"))
 			}
 			if err := runAdd(cli); err != nil {
 				fail(err.Error())
@@ -152,7 +207,7 @@ func main() {
 			return
 		case "set-key":
 			if len(args) != 2 {
-				fail("set-key 需要一个 provider 别名")
+				fail(tr("set-key 需要一个 provider 别名", "set-key requires a provider alias"))
 			}
 			if err := runSetKey(cli, args[1]); err != nil {
 				fail(err.Error())
@@ -160,7 +215,7 @@ func main() {
 			return
 		case "remove":
 			if len(args) != 2 {
-				fail("remove 需要一个 provider 别名")
+				fail(tr("remove 需要一个 provider 别名", "remove requires a provider alias"))
 			}
 			if err := runRemove(args[1]); err != nil {
 				fail(err.Error())
@@ -191,7 +246,7 @@ func main() {
 			dryRun = true
 		case a == "-m" || a == "--model":
 			if i+1 >= len(args) {
-				fail("--model 需要一个参数")
+				fail(tr("--model 需要一个参数", "--model requires an argument"))
 			}
 			model = args[i+1]
 			i++
@@ -219,7 +274,7 @@ func main() {
 
 	if alias == "custom" {
 		if dryRun {
-			fmt.Fprint(os.Stderr, "（custom 需交互输入端点/model/key 后探测，--dry-run 不适用）\n")
+			fmt.Fprint(os.Stderr, tr("（custom 需交互输入端点/model/key 后探测，--dry-run 不适用）\n", "custom requires interactive endpoint/model/key input and probing; --dry-run is unavailable\n"))
 			return
 		}
 		if err := runCustom(cli, skip, passthrough); err != nil {
@@ -230,10 +285,10 @@ func main() {
 
 	if alias == "def" {
 		if model != "" {
-			fail("def 不接受 --model；需要原生参数时请放在 -- 后")
+			fail(tr("def 不接受 --model；需要原生参数时请放在 -- 后", "def does not accept --model; place native CLI arguments after --"))
 		}
 		if intl {
-			fail("def 使用原生账号，不接受 --intl")
+			fail(tr("def 使用原生账号，不接受 --intl", "def uses the native account and does not accept --intl"))
 		}
 		if dryRun {
 			previewDefault(cli, skip, passthrough)
@@ -251,25 +306,25 @@ func main() {
 	idx := buildIndex()
 	r, ok := idx[alias]
 	if !ok {
-		fail(fmt.Sprintf("未知别名: %s\n运行 `%s list` 查看可用别名", alias, prog))
+		fail(fmt.Sprintf(tr("未知别名: %s\n运行 `%s list` 查看可用别名", "Unknown alias: %s\nRun `%s list` to see available aliases"), alias, prog))
 	}
 	if scopedCandidate != "" && r.Prov.Alias == alias {
 		if scoped, found := resolveProviderModel(r.Prov, scopedCandidate); found {
 			if model != "" {
-				fail("模型短名不能和 --model 同时使用")
+				fail(tr("模型短名不能和 --model 同时使用", "A model shortcut cannot be used together with --model"))
 			}
 			r = scoped
 			passthrough = append(passthrough[:scopedCandidateIndex], passthrough[scopedCandidateIndex+1:]...)
 		} else if knownModelSelector(scopedCandidate) {
-			fail(fmt.Sprintf("%s 当前没有 %s", r.Prov.Name, scopedCandidate))
+			fail(fmt.Sprintf(tr("%s 当前没有 %s", "%s does not currently offer %s"), r.Prov.Name, scopedCandidate))
 		}
 	}
 	if !r.Prov.supports(cli) {
-		fail(fmt.Sprintf("%s 不支持 %s（端点协议限制，无代理）。\n支持: %s",
+		fail(fmt.Sprintf(tr("%s 不支持 %s（端点协议限制，无代理）。\n支持: %s", "%s does not support %s (endpoint protocol limitation; no proxy).\nSupported: %s"),
 			r.Prov.Name, cli, strings.Join(r.Prov.CLI, ", ")))
 	}
 	if intl && !r.Prov.hasIntlFor(cli) {
-		fail(fmt.Sprintf("%s 没有可供 %s 使用的海外端点", r.Prov.Name, cli))
+		fail(fmt.Sprintf(tr("%s 没有可供 %s 使用的海外端点", "%s has no international endpoint for %s"), r.Prov.Name, cli))
 	}
 
 	chosen := r.Model.ID
@@ -300,11 +355,11 @@ func main() {
 }
 
 func printQuickStart(prog, cli string) {
-	fmt.Printf("%s：用指定 provider / model 启动 %s\n", prog, cli)
-	fmt.Printf("用法: %s def，%s <模型短名>，或 %s <来源短名> [模型短名]\n", prog, prog, prog)
-	fmt.Printf("示例: %s def    %s k3    %s sf k27\n", prog, prog, prog)
-	fmt.Printf("可用别名: %s list    配置: %s config\n", prog, prog)
-	fmt.Printf("完整帮助: %s --help\n", prog)
+	fmt.Printf(tr("%s：用指定 provider / model 启动 %s\n", "%s: launch %s with a selected provider and model\n"), prog, cli)
+	fmt.Printf(tr("用法: %s def，%s <模型短名>，或 %s <来源短名> [模型短名]\n", "Usage: %s def, %s <model shortcut>, or %s <source shortcut> [model shortcut]\n"), prog, prog, prog)
+	fmt.Printf(tr("示例: %s def    %s k3    %s sf k27\n", "Examples: %s def    %s k3    %s sf k27\n"), prog, prog, prog)
+	fmt.Printf(tr("可用别名: %s list    配置: %s config\n", "Aliases: %s list    Configuration: %s config\n"), prog, prog)
+	fmt.Printf(tr("完整帮助: %s --help\n", "Full help: %s --help\n"), prog)
 }
 
 func isReservedAlias(alias string) bool {
@@ -332,9 +387,9 @@ func fail(msg string) {
 
 func printTable() {
 	fmt.Println()
-	fmt.Println("  " + pad("别名（版本）", 25) + pad("Provider", 29) + pad("默认模型", 36) + pad("入口", 13) + "intl")
+	fmt.Println("  " + pad(tr("别名（版本）", "Alias (version)"), 25) + pad("Provider", 29) + pad(tr("默认模型", "Default model"), 36) + pad(tr("入口", "Entry"), 13) + "intl")
 	fmt.Println("  " + strings.Repeat("-", 107))
-	fmt.Println("  " + pad("def", 25) + pad("原生账号 / 配置", 29) + pad("由对应 CLI 决定", 36) + pad("cld/cdx/opc", 13) + "—")
+	fmt.Println("  " + pad("def", 25) + pad(tr("原生账号 / 配置", "Native account / config"), 29) + pad(tr("由对应 CLI 决定", "Selected by the CLI"), 36) + pad("cld/cdx/opc", 13) + "—")
 	all := append([]Provider{}, catalogProviders()...)
 	all = append(all, loadCustomProfiles()...)
 	for i := range all {
@@ -354,12 +409,12 @@ func printTable() {
 			intlMark = "--intl"
 		}
 		aliasLines := wrapAliasCell(p.Alias, tags, 25)
-		fmt.Println("  " + pad(aliasLines[0], 25) + pad(p.Name, 29) + pad(latest, 36) + pad(entrySummary(p), 13) + intlMark)
+		fmt.Println("  " + pad(aliasLines[0], 25) + pad(localizedProviderName(p.Name), 29) + pad(latest, 36) + pad(entrySummary(p), 13) + intlMark)
 		for _, continuation := range aliasLines[1:] {
 			fmt.Println("  " + pad(continuation, 25))
 		}
 		if shortcuts := modelShortcutExamples(p); len(shortcuts) > 0 {
-			fmt.Println("      可选: " + strings.Join(shortcuts, ", "))
+			fmt.Println("      " + tr("可选: ", "Options: ") + strings.Join(shortcuts, ", "))
 		}
 	}
 }

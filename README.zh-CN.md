@@ -110,6 +110,10 @@ cdx glm --dry-run           # 只预览配置,不实际启动
 | `<入口> version` | 显示程序与 catalog 版本 |
 | `<入口> --help` | 显示完整帮助 |
 
+### 界面语言
+
+MuxLM 会自动检测系统语言:中文系统使用中文,英文系统使用英文,其它语言默认使用英文。在 `cld config` 中选择 **Language / 语言**,可设置跟随系统、English 或中文,选择会保存到 `settings.json`。脚本中可用 `MUXLM_LANG=en|zh|auto` 临时覆盖已保存的选择。
+
 ## 更新
 
 四种用法,各管一摊:

@@ -50,7 +50,7 @@ func configRootsForReadE() ([]string, error) {
 	if d := firstEnv("MUXLM_CONFIG_DIR", "PROVIDERDECK_CONFIG_DIR", "CX_CONFIG_DIR"); d != "" {
 		abs, err := filepath.Abs(d)
 		if err != nil {
-			return nil, fmt.Errorf("配置目录无效: %w", err)
+			return nil, fmt.Errorf(tr("配置目录无效: %w", "invalid configuration directory: %w"), err)
 		}
 		return []string{abs}, nil
 	}
@@ -94,12 +94,12 @@ func validUserHome() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil || strings.TrimSpace(home) == "" {
 		if err == nil {
-			err = errors.New("HOME 为空")
+			err = errors.New(tr("HOME 为空", "HOME is empty"))
 		}
-		return "", fmt.Errorf("无法确定配置目录: %w；请设置 HOME 或 MUXLM_CONFIG_DIR", err)
+		return "", fmt.Errorf(tr("无法确定配置目录: %w；请设置 HOME 或 MUXLM_CONFIG_DIR", "could not determine the configuration directory: %w; set HOME or MUXLM_CONFIG_DIR"), err)
 	}
 	if !filepath.IsAbs(home) {
-		return "", fmt.Errorf("HOME 必须是绝对路径；请设置 HOME 或 MUXLM_CONFIG_DIR")
+		return "", fmt.Errorf(tr("HOME 必须是绝对路径；请设置 HOME 或 MUXLM_CONFIG_DIR", "HOME must be an absolute path; set HOME or MUXLM_CONFIG_DIR"))
 	}
 	return filepath.Clean(home), nil
 }
@@ -185,11 +185,11 @@ func ensurePrivateDirWithin(dir, root string) error {
 	root, _ = filepath.Abs(root)
 	cur, _ := filepath.Abs(dir)
 	if cur != root && !strings.HasPrefix(cur, root+string(os.PathSeparator)) {
-		return fmt.Errorf("路径不在配置目录内: %s", cur)
+		return fmt.Errorf(tr("路径不在配置目录内: %s", "path is outside the configuration directory: %s"), cur)
 	}
 	for check := cur; ; check = filepath.Dir(check) {
 		if fi, err := os.Lstat(check); err == nil && fi.Mode()&os.ModeSymlink != 0 {
-			return fmt.Errorf("拒绝使用符号链接目录: %s", check)
+			return fmt.Errorf(tr("拒绝使用符号链接目录: %s", "refusing to use symlink directory: %s"), check)
 		} else if err != nil && !os.IsNotExist(err) {
 			return err
 		}
@@ -214,7 +214,7 @@ func readPrivateFile(path string) ([]byte, error) {
 
 func readPrivateFileWithRoots(path string, roots []string) ([]byte, error) {
 	if len(roots) == 0 {
-		return nil, errors.New("配置目录列表为空")
+		return nil, errors.New(tr("配置目录列表为空", "configuration directory list is empty"))
 	}
 	root := privateRootForPathWithRoots(path, roots)
 	b, err := readPrivateFileWithin(path, root)
@@ -245,13 +245,13 @@ func readPrivateFileWithin(path, root string) ([]byte, error) {
 		return nil, err
 	}
 	if fi.Mode()&os.ModeSymlink != 0 {
-		return nil, fmt.Errorf("拒绝读取符号链接: %s", path)
+		return nil, fmt.Errorf(tr("拒绝读取符号链接: %s", "refusing to read symlink: %s"), path)
 	}
 	if !fi.Mode().IsRegular() {
-		return nil, fmt.Errorf("拒绝读取非普通文件: %s", path)
+		return nil, fmt.Errorf(tr("拒绝读取非普通文件: %s", "refusing to read non-regular file: %s"), path)
 	}
 	if fi.Size() > maxPrivateFileBytes {
-		return nil, fmt.Errorf("文件超过 2 MiB 限制: %s", path)
+		return nil, fmt.Errorf(tr("文件超过 2 MiB 限制: %s", "file exceeds the 2 MiB limit: %s"), path)
 	}
 	if err := ensurePrivateDirWithin(filepath.Dir(path), root); err != nil {
 		return nil, err
@@ -280,10 +280,10 @@ func atomicWriteJSON(path string, v any) error {
 	}
 	if fi, err := os.Lstat(path); err == nil {
 		if fi.Mode()&os.ModeSymlink != 0 {
-			return fmt.Errorf("拒绝写入符号链接: %s", path)
+			return fmt.Errorf(tr("拒绝写入符号链接: %s", "refusing to write through symlink: %s"), path)
 		}
 		if !fi.Mode().IsRegular() {
-			return fmt.Errorf("拒绝替换非普通文件: %s", path)
+			return fmt.Errorf(tr("拒绝替换非普通文件: %s", "refusing to replace non-regular file: %s"), path)
 		}
 	} else if !os.IsNotExist(err) {
 		return err
@@ -294,7 +294,7 @@ func atomicWriteJSON(path string, v any) error {
 	}
 	b = append(b, '\n')
 	if len(b) > maxPrivateFileBytes {
-		return fmt.Errorf("写入内容超过 2 MiB 限制: %s", path)
+		return fmt.Errorf(tr("写入内容超过 2 MiB 限制: %s", "content exceeds the 2 MiB write limit: %s"), path)
 	}
 	f, err := os.CreateTemp(filepath.Dir(path), ".muxlm-write-*")
 	if err != nil {
@@ -435,7 +435,7 @@ func secretSetWithChoice(providerID, ref, value string, choice secretBackendChoi
 		if reason == "" {
 			reason = "系统密钥库不可用"
 		}
-		return "", fmt.Errorf("%s；为避免自动降低密钥安全性，未写入明文文件。确认后请设置 MUXLM_SECRET_BACKEND=file 再试", reason)
+		return "", fmt.Errorf(tr("%s；为避免自动降低密钥安全性，未写入明文文件。确认后请设置 MUXLM_SECRET_BACKEND=file 再试", "%s; no plaintext file was written to avoid silently weakening key security. If accepted, set MUXLM_SECRET_BACKEND=file and retry"), reason)
 	}
 	return secretSetWithBackend(providerID, ref, value, choice.name)
 }
@@ -459,21 +459,21 @@ func secretSetWithBackend(providerID, ref, value, backend string) (string, error
 		// -w 不带参数可避免 key 进入进程列表；security 会要求输入两次确认。
 		cmd.Stdin = strings.NewReader(keychainPasswordInput(value))
 		if out, err := cmd.CombinedOutput(); err != nil {
-			return "", fmt.Errorf("写入 macOS Keychain 失败: %v (%s)", err, strings.TrimSpace(string(out)))
+			return "", fmt.Errorf(tr("写入 macOS Keychain 失败: %v (%s)", "failed to write to macOS Keychain: %v (%s)"), err, strings.TrimSpace(string(out)))
 		}
 	case "secret-service":
 		// #nosec G204 -- 可执行文件固定，ref 由程序生成并在读取元数据时严格校验。
 		cmd := exec.Command("secret-tool", "store", "--label="+appName, "service", secretService, "account", ref)
 		cmd.Stdin = strings.NewReader(value + "\n")
 		if out, err := cmd.CombinedOutput(); err != nil {
-			return "", fmt.Errorf("写入 Secret Service 失败: %v (%s)；如确认接受 0600 权限的明文文件，可设置 MUXLM_SECRET_BACKEND=file 后重试", err, strings.TrimSpace(string(out)))
+			return "", fmt.Errorf(tr("写入 Secret Service 失败: %v (%s)；如确认接受 0600 权限的明文文件，可设置 MUXLM_SECRET_BACKEND=file 后重试", "failed to write to Secret Service: %v (%s); if you accept a plaintext file with mode 0600, set MUXLM_SECRET_BACKEND=file and retry"), err, strings.TrimSpace(string(out)))
 		}
 	case "file":
 		path := fileSecretsPath(providerID)
 		m := fileSecrets{}
 		if b, err := readPrivateFile(path); err == nil {
 			if err := json.Unmarshal(b, &m); err != nil {
-				return "", fmt.Errorf("密钥文件损坏，拒绝覆盖: %w", err)
+				return "", fmt.Errorf(tr("密钥文件损坏，拒绝覆盖: %w", "secret file is corrupt; refusing to overwrite it: %w"), err)
 			}
 		} else if !os.IsNotExist(err) {
 			return "", err
@@ -483,7 +483,7 @@ func secretSetWithBackend(providerID, ref, value, backend string) (string, error
 			return "", err
 		}
 	default:
-		return "", fmt.Errorf("未知密钥后端 %q", backend)
+		return "", fmt.Errorf(tr("未知密钥后端 %q", "unknown secret backend %q"), backend)
 	}
 	return backend, nil
 }
@@ -500,7 +500,7 @@ func secretGet(providerID, backend, ref string) (string, error) {
 				return strings.TrimSpace(string(out)), nil
 			}
 		}
-		return "", errors.New("密钥不存在")
+		return "", errors.New(tr("密钥不存在", "secret does not exist"))
 	case "secret-service":
 		for _, service := range secretServicesForRead() {
 			// #nosec G204 -- 可执行文件固定，ref 来自已校验的本地元数据。
@@ -509,7 +509,7 @@ func secretGet(providerID, backend, ref string) (string, error) {
 				return strings.TrimSpace(string(out)), nil
 			}
 		}
-		return "", errors.New("密钥不存在")
+		return "", errors.New(tr("密钥不存在", "secret does not exist"))
 	case "file":
 		b, err := readPrivateFile(fileSecretsPath(providerID))
 		if err != nil {
@@ -521,11 +521,11 @@ func secretGet(providerID, backend, ref string) (string, error) {
 		}
 		v := m[ref]
 		if v == "" {
-			return "", errors.New("密钥不存在")
+			return "", errors.New(tr("密钥不存在", "secret does not exist"))
 		}
 		return v, nil
 	default:
-		return "", fmt.Errorf("未知密钥后端 %q", backend)
+		return "", fmt.Errorf(tr("未知密钥后端 %q", "unknown secret backend %q"), backend)
 	}
 }
 
@@ -554,7 +554,7 @@ func secretDelete(providerID, backend, ref string) error {
 		delete(m, ref)
 		return atomicWriteJSON(path, m)
 	default:
-		return fmt.Errorf("未知密钥后端 %q", backend)
+		return fmt.Errorf(tr("未知密钥后端 %q", "unknown secret backend %q"), backend)
 	}
 }
 

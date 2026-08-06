@@ -152,10 +152,10 @@ func checkRelease(ctx context.Context) (releaseCheckResult, error) {
 	raw := releaseAPIURL()
 	u, err := url.Parse(raw)
 	if err != nil || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
-		return releaseCheckResult{}, fmt.Errorf("无效 release API URL")
+		return releaseCheckResult{}, fmt.Errorf(tr("无效 release API URL", "invalid release API URL"))
 	}
 	if u.Scheme != "https" && !(u.Scheme == "http" && isLoopbackHost(u.Hostname())) {
-		return releaseCheckResult{}, fmt.Errorf("release 检查只允许 HTTPS（本机地址除外）")
+		return releaseCheckResult{}, fmt.Errorf(tr("release 检查只允许 HTTPS（本机地址除外）", "release checks require HTTPS (except loopback addresses)"))
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, raw, nil)
 	if err != nil {
@@ -169,26 +169,26 @@ func checkRelease(ctx context.Context) (releaseCheckResult, error) {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return releaseCheckResult{}, fmt.Errorf("release 检查失败: HTTP %d", resp.StatusCode)
+		return releaseCheckResult{}, fmt.Errorf(tr("release 检查失败: HTTP %d", "release check failed: HTTP %d"), resp.StatusCode)
 	}
 	b, err := io.ReadAll(io.LimitReader(resp.Body, maxReleaseJSONBytes+1))
 	if err != nil {
 		return releaseCheckResult{}, err
 	}
 	if len(b) > maxReleaseJSONBytes {
-		return releaseCheckResult{}, fmt.Errorf("release 响应过大")
+		return releaseCheckResult{}, fmt.Errorf(tr("release 响应过大", "release response is too large"))
 	}
 	var rel struct {
 		TagName string `json:"tag_name"`
 	}
 	if err := json.Unmarshal(b, &rel); err != nil || strings.TrimSpace(rel.TagName) == "" {
-		return releaseCheckResult{}, fmt.Errorf("release 响应无效")
+		return releaseCheckResult{}, fmt.Errorf(tr("release 响应无效", "invalid release response"))
 	}
 	if _, ok := parseSemver(rel.TagName); !ok {
-		return releaseCheckResult{}, fmt.Errorf("release tag 不是有效 semver: %q", rel.TagName)
+		return releaseCheckResult{}, fmt.Errorf(tr("release tag 不是有效 semver: %q", "release tag is not valid semver: %q"), rel.TagName)
 	}
 	if _, ok := parseSemver(appVersion); !ok {
-		return releaseCheckResult{}, fmt.Errorf("当前程序版本无效: %q", appVersion)
+		return releaseCheckResult{}, fmt.Errorf(tr("当前程序版本无效: %q", "current application version is invalid: %q"), appVersion)
 	}
 	installer := installURL()
 	if _, err := validateInstallURL(installer); err != nil {
@@ -218,12 +218,12 @@ func checkUpdatesOnStartup() {
 	}
 	if catalogDue && startupUpdateInterval() > 0 {
 		if err := recordStartupUpdateAttempt(now); err != nil && updateDebugEnabled() {
-			fmt.Fprintln(os.Stderr, "⚠ 无法记录更新检查时间:", err)
+			fmt.Fprintln(os.Stderr, tr("⚠ 无法记录更新检查时间:", "⚠ Could not record the update check time:"), err)
 		}
 	}
 	if releaseDue {
 		if err := recordReleaseUpdateAttempt(now); err != nil && updateDebugEnabled() {
-			fmt.Fprintln(os.Stderr, "⚠ 无法记录版本检查时间:", err)
+			fmt.Fprintln(os.Stderr, tr("⚠ 无法记录版本检查时间:", "⚠ Could not record the version check time:"), err)
 		}
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), startupUpdateTimeout)
@@ -256,17 +256,17 @@ func checkUpdatesOnStartup() {
 		cat := <-catCh
 		if cat.err != nil {
 			if updateDebugEnabled() {
-				fmt.Fprintln(os.Stderr, "⚠ 模型列表自动更新失败：", cat.err)
+				fmt.Fprintln(os.Stderr, tr("⚠ 模型列表自动更新失败：", "⚠ Automatic model catalog update failed:"), cat.err)
 			}
 		} else if cat.result.Updated {
-			fmt.Fprintf(os.Stderr, "↻ 模型列表已自动更新至 %s（%d 个服务商）\n", cat.result.Revision, cat.result.ProviderCount)
+			fmt.Fprintf(os.Stderr, tr("↻ 模型列表已自动更新至 %s（%d 个服务商）\n", "↻ Model catalog automatically updated to %s (%d providers)\n"), cat.result.Revision, cat.result.ProviderCount)
 		}
 	}
 	if releaseDue {
 		ver := <-verCh
 		if ver.err != nil {
 			if updateDebugEnabled() {
-				fmt.Fprintln(os.Stderr, "⚠ 版本检查失败:", ver.err)
+				fmt.Fprintln(os.Stderr, tr("⚠ 版本检查失败:", "⚠ Version check failed:"), ver.err)
 			}
 		} else if ver.result.Update {
 			printReleaseNotice(ver.result)
@@ -275,13 +275,13 @@ func checkUpdatesOnStartup() {
 }
 
 func printReleaseNotice(r releaseCheckResult) {
-	fmt.Fprintf(os.Stderr, "↑ MuxLM %s 已发布（当前 %s），运行 `cld update --self` 即可更新。\n", r.Latest, appVersion)
+	fmt.Fprintf(os.Stderr, tr("↑ MuxLM %s 已发布（当前 %s），运行 `cld update --self` 即可更新。\n", "↑ MuxLM %s is available (current: %s). Run `cld update --self` to update.\n"), r.Latest, appVersion)
 }
 
 func runSelfUpdate() error {
 	executable, err := os.Executable()
 	if err != nil {
-		return fmt.Errorf("无法确定当前 MuxLM 路径: %w", err)
+		return fmt.Errorf(tr("无法确定当前 MuxLM 路径: %w", "could not determine the current MuxLM path: %w"), err)
 	}
 	return runSelfUpdateForExecutable(executable)
 }
@@ -292,31 +292,31 @@ func runSelfUpdateForExecutable(executable string) error {
 	r, err := checkRelease(ctx)
 	cancel()
 	if err != nil {
-		return fmt.Errorf("检查 MuxLM 更新失败：%w", err)
+		return fmt.Errorf(tr("检查 MuxLM 更新失败：%w", "failed to check for a MuxLM update: %w"), err)
 	}
 	if !r.Update {
-		fmt.Printf("✓ MuxLM 已是最新：%s\n", appVersion)
+		fmt.Printf(tr("✓ MuxLM 已是最新：%s\n", "✓ MuxLM is current: %s\n"), appVersion)
 		return nil
 	}
 
 	installDir, err := managedSelfInstallDir(executable)
 	if err != nil {
-		return fmt.Errorf("MuxLM %s 已发布，但无法自动更新：%w", r.Latest, err)
+		return fmt.Errorf(tr("MuxLM %s 已发布，但无法自动更新：%w", "MuxLM %s is available, but automatic update is unavailable: %w"), r.Latest, err)
 	}
 
 	downloadCtx, downloadCancel := context.WithTimeout(context.Background(), 30*time.Second)
 	installerPath, err := downloadInstaller(downloadCtx, r.InstallURL)
 	downloadCancel()
 	if err != nil {
-		return fmt.Errorf("下载安装程序失败：%w", err)
+		return fmt.Errorf(tr("下载安装程序失败：%w", "failed to download the installer: %w"), err)
 	}
 	defer os.Remove(installerPath)
 
 	bash, err := exec.LookPath("bash")
 	if err != nil {
-		return fmt.Errorf("自更新需要 bash，但 PATH 中未找到")
+		return fmt.Errorf(tr("自更新需要 bash，但 PATH 中未找到", "self-update requires bash, but it was not found in PATH"))
 	}
-	fmt.Printf("→ 正在更新 MuxLM（%s → %s）…\n", appVersion, r.Latest)
+	fmt.Printf(tr("→ 正在更新 MuxLM（%s → %s）…\n", "→ Updating MuxLM (%s → %s)…\n"), appVersion, r.Latest)
 	// #nosec G204 -- installerPath is a private temporary file downloaded from
 	// the validated HTTPS/loopback install URL; install.sh verifies the release
 	// binary checksum before replacing the managed executable.
@@ -326,19 +326,19 @@ func runSelfUpdateForExecutable(executable string) error {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("MuxLM 更新失败：%w", err)
+		return fmt.Errorf(tr("MuxLM 更新失败：%w", "MuxLM update failed: %w"), err)
 	}
-	fmt.Printf("✓ MuxLM 已更新至 %s\n", r.Latest)
+	fmt.Printf(tr("✓ MuxLM 已更新至 %s\n", "✓ MuxLM updated to %s\n"), r.Latest)
 	return nil
 }
 
 func validateInstallURL(raw string) (*url.URL, error) {
 	u, err := url.Parse(raw)
 	if err != nil || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
-		return nil, fmt.Errorf("安装地址无效")
+		return nil, fmt.Errorf(tr("安装地址无效", "invalid installer URL"))
 	}
 	if u.Scheme != "https" && !(u.Scheme == "http" && isLoopbackHost(u.Hostname())) {
-		return nil, fmt.Errorf("安装地址必须使用 HTTPS（本机地址除外）")
+		return nil, fmt.Errorf(tr("安装地址必须使用 HTTPS（本机地址除外）", "installer URL must use HTTPS (except loopback addresses)"))
 	}
 	return u, nil
 }
@@ -360,14 +360,14 @@ func downloadInstaller(ctx context.Context, raw string) (string, error) {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("安装程序下载失败：HTTP %d", resp.StatusCode)
+		return "", fmt.Errorf(tr("安装程序下载失败：HTTP %d", "installer download failed: HTTP %d"), resp.StatusCode)
 	}
 	b, err := io.ReadAll(io.LimitReader(resp.Body, maxInstallerBytes+1))
 	if err != nil {
 		return "", err
 	}
 	if len(b) > maxInstallerBytes {
-		return "", fmt.Errorf("安装程序文件过大")
+		return "", fmt.Errorf(tr("安装程序文件过大", "installer file is too large"))
 	}
 	f, err := os.CreateTemp("", "muxlm-install-*.sh")
 	if err != nil {
@@ -400,7 +400,7 @@ func downloadInstaller(ctx context.Context, raw string) (string, error) {
 func managedSelfInstallDir(executable string) (string, error) {
 	realExecutable, err := filepath.EvalSymlinks(executable)
 	if err != nil {
-		return "", fmt.Errorf("无法解析当前 MuxLM 路径: %w", err)
+		return "", fmt.Errorf(tr("无法解析当前 MuxLM 路径: %w", "could not resolve the current MuxLM path: %w"), err)
 	}
 	realExecutable, err = filepath.Abs(realExecutable)
 	if err != nil {
@@ -408,7 +408,7 @@ func managedSelfInstallDir(executable string) (string, error) {
 	}
 	info, err := os.Lstat(realExecutable)
 	if err != nil || !info.Mode().IsRegular() {
-		return "", fmt.Errorf("无法安全更新当前 MuxLM 文件")
+		return "", fmt.Errorf(tr("无法安全更新当前 MuxLM 文件", "the current MuxLM executable cannot be updated safely"))
 	}
 	var markerName string
 	switch filepath.Base(realExecutable) {
@@ -417,12 +417,12 @@ func managedSelfInstallDir(executable string) (string, error) {
 	case "providerdeck":
 		markerName = ".providerdeck-install.sha256"
 	default:
-		return "", fmt.Errorf("当前安装方式不支持自动更新，请按原来的方式重新安装 MuxLM")
+		return "", fmt.Errorf(tr("当前安装方式不支持自动更新，请按原来的方式重新安装 MuxLM", "this installation method does not support automatic updates; reinstall MuxLM using the original method"))
 	}
 	dir := filepath.Dir(realExecutable)
 	markerInfo, err := os.Lstat(filepath.Join(dir, markerName))
 	if err != nil || !markerInfo.Mode().IsRegular() {
-		return "", fmt.Errorf("当前安装方式不支持自动更新，请按原来的方式重新安装 MuxLM")
+		return "", fmt.Errorf(tr("当前安装方式不支持自动更新，请按原来的方式重新安装 MuxLM", "this installation method does not support automatic updates; reinstall MuxLM using the original method"))
 	}
 	return dir, nil
 }
@@ -439,7 +439,7 @@ func setEnvValue(env []string, key, value string) []string {
 }
 
 func printVersion() {
-	fmt.Printf("%s %s\n模型列表 %s\n", appName, appVersion, activeCatalogRevision())
+	fmt.Printf(tr("%s %s\n模型列表 %s\n", "%s %s\nModel catalog %s\n"), appName, appVersion, activeCatalogRevision())
 }
 
 func compareSemver(a, b string) int {

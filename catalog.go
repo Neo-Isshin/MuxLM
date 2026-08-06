@@ -208,7 +208,7 @@ func catalogProviders() []Provider {
 		return c.Providers
 	}
 	if !os.IsNotExist(err) && !errors.Is(err, errCatalogCacheStale) {
-		fmt.Fprintln(os.Stderr, "⚠ 本地 catalog 无效，已回退到内置版本")
+		fmt.Fprintln(os.Stderr, tr("⚠ 本地 catalog 无效，已回退到内置版本", "⚠ Local catalog is invalid; using the embedded catalog"))
 	}
 	return providers
 }
@@ -228,11 +228,11 @@ func buildIndex() map[string]Resolved {
 		for i := range ps {
 			provider := &ps[i]
 			if custom && retiredTags[provider.Alias] {
-				fmt.Fprintf(os.Stderr, "⚠ 自定义别名 %q 与已退役 catalog 别名冲突，已忽略自定义项\n", provider.Alias)
+				fmt.Fprintf(os.Stderr, tr("⚠ 自定义别名 %q 与已退役 catalog 别名冲突，已忽略自定义项\n", "⚠ Custom alias %q conflicts with a retired catalog alias and was ignored\n"), provider.Alias)
 				continue
 			}
 			if _, exists := idx[provider.Alias]; custom && exists {
-				fmt.Fprintf(os.Stderr, "⚠ 自定义别名 %q 与 catalog 冲突，已忽略自定义项\n", provider.Alias)
+				fmt.Fprintf(os.Stderr, tr("⚠ 自定义别名 %q 与 catalog 冲突，已忽略自定义项\n", "⚠ Custom alias %q conflicts with the catalog and was ignored\n"), provider.Alias)
 				continue
 			}
 			var latest *Model
