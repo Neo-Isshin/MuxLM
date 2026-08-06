@@ -174,7 +174,7 @@ The config directory is chosen in this order: `MUXLM_CONFIG_DIR` → `PROVIDERDE
 
 ```bash
 go test ./...
-go build -ldflags "-X main.appVersion=v2.3.0" -o muxlm .
+go build -ldflags "-X main.appVersion=v2.4.0" -o muxlm .
 ```
 
 Licensed under the [MIT License](LICENSE). The seed catalog includes community-derived data; see [third-party notices](THIRD_PARTY_NOTICES.md).
