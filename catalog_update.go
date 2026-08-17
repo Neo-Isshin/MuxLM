@@ -751,6 +751,10 @@ func checkCatalogUpdateLocked(ctx context.Context, conditional bool) (catalogUpd
 		return catalogUpdateResult{}, err
 	}
 	req.Header.Set("Accept", "application/json")
+	// GitHub Raw can briefly serve a stale compressed cache variant after a
+	// branch update. Request the identity representation so catalog revisions
+	// become visible as soon as the canonical object is refreshed.
+	req.Header.Set("Accept-Encoding", "identity")
 	req.Header.Set("User-Agent", binaryName+"/"+strings.TrimPrefix(appVersion, "v"))
 	sentConditional := false
 	if conditional && cacheErr == nil && state.URL == raw && state.Revision == cache.Revision && state.CatalogDigest == cacheDigest {

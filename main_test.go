@@ -924,8 +924,10 @@ func TestCatalogConditionalRequestUsesETagAnd304(t *testing.T) {
 	body := append([]byte(nil), embeddedCatalogJSON...)
 	requests := 0
 	conditionalHeader := ""
+	encodingHeaders := []string{}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests++
+		encodingHeaders = append(encodingHeaders, r.Header.Get("Accept-Encoding"))
 		if requests == 1 {
 			w.Header().Set("ETag", `"catalog-v1"`)
 			_, _ = w.Write(body)
@@ -947,6 +949,9 @@ func TestCatalogConditionalRequestUsesETagAnd304(t *testing.T) {
 	}
 	if conditionalHeader != `"catalog-v1"` {
 		t.Fatalf("If-None-Match=%q", conditionalHeader)
+	}
+	if len(encodingHeaders) != 2 || encodingHeaders[0] != "identity" || encodingHeaders[1] != "identity" {
+		t.Fatalf("Accept-Encoding headers=%#v", encodingHeaders)
 	}
 }
 
