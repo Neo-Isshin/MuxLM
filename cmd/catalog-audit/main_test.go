@@ -90,6 +90,24 @@ func TestAuditSeparatesKnownAndUnknownMissingModels(t *testing.T) {
 	}
 }
 
+func TestGLMPayGoPolicyExceptionDoesNotFailStrictAudit(t *testing.T) {
+	catalog := muxCatalog{
+		Providers: []muxProvider{{
+			Alias:  "glm",
+			Models: []muxModel{{ID: "glm-5.3"}},
+		}},
+	}
+	report := auditCatalog(catalog, map[string]upstreamProvider{
+		"zhipuai": {Models: map[string]upstreamModel{}},
+	})
+	if report.hasUnknownMissing() {
+		t.Fatalf("known GLM pay-as-you-go policy exception failed strict audit: %#v", report)
+	}
+	if _, exists := report.Routes[0].KnownMissing["glm-5.3"]; !exists {
+		t.Fatalf("GLM pay-as-you-go exception missing: %#v", report.Routes[0])
+	}
+}
+
 func TestAuditMissingUpstreamProviderDoesNotDuplicateModels(t *testing.T) {
 	catalog := muxCatalog{
 		Providers: []muxProvider{{

@@ -2,7 +2,7 @@
 
 [English](CATALOG.md) · [Catalog 原始数据](catalog-v2.json)
 
-本表沿用 `cld list` 的展示方式，并按模型的实际来源分为官方来源和中转来源。内容对应内置 Catalog revision `2026-08-17.1`；由于 MuxLM 可以独立更新 Catalog，请以本机执行 `cld list` 后显示的内容为准。
+本表沿用 `cld list` 的展示方式，并按模型的实际来源分为官方来源和中转来源。内容对应内置 Catalog revision `2026-08-17.2`；由于 MuxLM 可以独立更新 Catalog，请以本机执行 `cld list` 后显示的内容为准。
 
 入口可以使用 `cdx`、`cld` 或 `opc`。单独使用模型短名时选择官方来源；需要中转来源时，在模型短名前增加来源短名，例如 `cld k3` 与 `opc or k3`。
 
@@ -12,9 +12,9 @@
 别名（版本）                 Provider                              默认模型                           入口         intl
 ----------------------------------------------------------------------------------------------------------------------
 def                          原生账号 / 配置                       由对应 CLI 决定                   cld/cdx/opc  —
-glm (glm52,glm51,glm5v)      智谱 GLM（按量计费 API）              glm-5.2                            cld/cdx/opc  —
-    (glm5,glm47,glm47fx)
-    (glm47f)
+glm (glm53,glm52,glm51)      智谱 GLM（按量计费 API）              glm-5.3                            cld/cdx/opc  —
+    (glm5v,glm5,glm47)
+    (glm47fx,glm47f)
 glmc (glmc53,glmc52,glmc5v)  智谱 GLM Coding Plan（订阅）          glm-5.3                            cld/cdx/opc  —
      (glmc51,glmc5t,glmc47)
 k (k27,k27h,k26)             Moonshot Kimi（按量计费 API）         kimi-k3                            cld/cdx/opc  —

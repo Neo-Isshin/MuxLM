@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "revision": "2026-08-17.1",
+  "revision": "2026-08-17.2",
   "retired_tags": {
     "doubao-code": "doubao/standard/doubao-seed-code-preview-latest",
     "k3": "kimi/coding/k3",
@@ -20,7 +20,8 @@
       "key_env": "GLM_KEY",
       "cli": ["claude", "codex", "opencode"],
       "models": [
-        {"id": "glm-5.2", "tag": "glm52", "source": "official", "latest": true},
+        {"id": "glm-5.3", "tag": "glm53", "source": "official", "latest": true},
+        {"id": "glm-5.2", "tag": "glm52", "source": "official", "latest": false},
         {"id": "glm-5.1", "tag": "glm51", "source": "official", "latest": false},
         {"id": "glm-5v-turbo", "tag": "glm5v", "source": "official", "latest": false},
         {"id": "glm-5", "tag": "glm5", "source": "official", "latest": false},

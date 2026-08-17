@@ -146,6 +146,14 @@ func TestRetiredKimiVersionAliasesRemainTombstoned(t *testing.T) {
 }
 
 func TestCatalogGrowthFromPreviousRevisionsIsAccepted(t *testing.T) {
+	august17 := catalogAtAugust17Revision1(t)
+	if err := validateCatalog(august17); err != nil {
+		t.Fatalf("August 17.1 catalog fixture is invalid: %v", err)
+	}
+	if err := validateCatalogEvolution(august17, &embeddedCatalog); err != nil {
+		t.Fatalf("August 17.1 release cannot accept the expanded catalog: %v", err)
+	}
+
 	july30 := catalogAtJuly30(t)
 	if err := validateCatalog(july30); err != nil {
 		t.Fatalf("July 30 catalog fixture is invalid: %v", err)
@@ -175,9 +183,28 @@ func TestCatalogGrowthFromPreviousRevisionsIsAccepted(t *testing.T) {
 	}
 }
 
-func catalogAtJuly30(t *testing.T) *CatalogFile {
+func catalogAtAugust17Revision1(t *testing.T) *CatalogFile {
 	t.Helper()
 	previous := cloneCatalog(t, &embeddedCatalog)
+	previous.Revision = "2026-08-17.1"
+	removeModelWithTag(t, previous, "glm53")
+	for providerIndex := range previous.Providers {
+		provider := &previous.Providers[providerIndex]
+		if provider.Alias != "glm" {
+			continue
+		}
+		for modelIndex := range provider.Models {
+			if provider.Models[modelIndex].ID == "glm-5.2" {
+				provider.Models[modelIndex].Latest = true
+			}
+		}
+	}
+	return previous
+}
+
+func catalogAtJuly30(t *testing.T) *CatalogFile {
+	t.Helper()
+	previous := catalogAtAugust17Revision1(t)
 	previous.Revision = "2026-07-30.1"
 	for _, tag := range []string{
 		"glmc53", "nvn35l",

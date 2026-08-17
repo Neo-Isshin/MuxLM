@@ -2,7 +2,7 @@
 
 [简体中文](CATALOG.zh-CN.md) · [Raw catalog data](catalog-v2.json)
 
-This reference follows the layout of `cld list` and separates first-party model routes from relay routes. It reflects the embedded catalog revision `2026-08-17.1`; because MuxLM can update its catalog independently, run `cld list` to see the catalog currently active on your machine.
+This reference follows the layout of `cld list` and separates first-party model routes from relay routes. It reflects the embedded catalog revision `2026-08-17.2`; because MuxLM can update its catalog independently, run `cld list` to see the catalog currently active on your machine.
 
 Use `cdx`, `cld`, or `opc` as the entry command. A model short name by itself selects its official route; prefix it with a source alias to select a relay, for example `cld k3` versus `opc or k3`.
 
@@ -12,9 +12,9 @@ Use `cdx`, `cld`, or `opc` as the entry command. A model short name by itself se
 Alias (versions)             Provider                              Default model                     Entry        intl
 ----------------------------------------------------------------------------------------------------------------------
 def                          Native account / configuration         Determined by the selected CLI    cld/cdx/opc  —
-glm (glm52,glm51,glm5v)      Zhipu GLM (pay-as-you-go API)          glm-5.2                           cld/cdx/opc  —
-    (glm5,glm47,glm47fx)
-    (glm47f)
+glm (glm53,glm52,glm51)      Zhipu GLM (pay-as-you-go API)          glm-5.3                           cld/cdx/opc  —
+    (glm5v,glm5,glm47)
+    (glm47fx,glm47f)
 glmc (glmc53,glmc52,glmc5v)  Zhipu GLM Coding Plan                  glm-5.3                           cld/cdx/opc  —
      (glmc51,glmc5t,glmc47)
 k (k27,k27h,k26)             Moonshot Kimi (pay-as-you-go API)      kimi-k3                           cld/cdx/opc  —

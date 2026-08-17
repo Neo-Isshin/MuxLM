@@ -75,7 +75,14 @@ type sourceRule struct {
 // The mapping is deliberately explicit. A new provider in models.dev must not
 // silently become a trusted MuxLM route.
 var sourceRules = []sourceRule{
-	{Alias: "glm", Upstream: "zhipuai", Prefixes: []string{"glm-"}},
+	{
+		Alias:    "glm",
+		Upstream: "zhipuai",
+		Prefixes: []string{"glm-"},
+		KnownMissing: map[string]string{
+			"glm-5.3": "enabled for the pay-as-you-go route by project policy pending its models.dev listing",
+		},
+	},
 	{Alias: "glmc", Upstream: "zhipuai-coding-plan", Prefixes: []string{"glm-"}},
 	{Alias: "k", Upstream: "moonshotai-cn", Prefixes: []string{"kimi-"}},
 	{

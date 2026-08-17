@@ -105,7 +105,7 @@ func TestEveryProviderAliasUsesItsLatestModel(t *testing.T) {
 	}
 
 	for alias, modelID := range map[string]string{
-		"glm":  "glm-5.2",
+		"glm":  "glm-5.3",
 		"glmc": "glm-5.3",
 		"k":    "kimi-k3",
 		"m":    "MiniMax-M3",
@@ -116,6 +116,9 @@ func TestEveryProviderAliasUsesItsLatestModel(t *testing.T) {
 		if got := idx[alias].Model.ID; got != modelID {
 			t.Fatalf("%s default = %q, want %q", alias, got, modelID)
 		}
+	}
+	if got := idx["glm53"]; got.Prov == nil || got.Prov.Alias != "glm" || got.Model.ID != "glm-5.3" {
+		t.Fatalf("glm53 = %#v, want glm pay-as-you-go glm-5.3", got)
 	}
 }
 
