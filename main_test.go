@@ -122,6 +122,27 @@ func TestEveryProviderAliasUsesItsLatestModel(t *testing.T) {
 	}
 }
 
+func TestGLM53UsesOneMillionContextInClaudeCode(t *testing.T) {
+	isolatedConfig(t)
+	idx := buildIndex()
+	for _, alias := range []string{"glm", "glmc"} {
+		resolved := idx[alias]
+		claudeModel, env := claudeLaunchSettings(resolved.Prov, resolved.Model.ID, resolved.Prov.ClaudeURL, "secret")
+		if claudeModel != "glm-5.3[1m]" {
+			t.Fatalf("%s Claude model = %q", alias, claudeModel)
+		}
+		if env["ANTHROPIC_DEFAULT_OPUS_MODEL"] != claudeModel ||
+			env["ANTHROPIC_DEFAULT_SONNET_MODEL"] != claudeModel ||
+			env["CLAUDE_CODE_SUBAGENT_MODEL"] != claudeModel ||
+			env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] != "1000000" {
+			t.Fatalf("%s Claude settings = %#v", alias, env)
+		}
+		if resolved.Model.ID != "glm-5.3" {
+			t.Fatalf("%s catalog model = %q, want plain model ID for Codex and OpenCode", alias, resolved.Model.ID)
+		}
+	}
+}
+
 func TestPlansShareDirectoryButKeepSeparateKeys(t *testing.T) {
 	isolatedConfig(t)
 	idx := buildIndex()

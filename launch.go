@@ -68,6 +68,12 @@ func claudeLaunchSettings(p *Provider, model, url, key string) (string, map[stri
 		"ANTHROPIC_AUTH_TOKEN": key,
 	}
 
+	// GLM exposes a Claude Code compatibility name for its 1M context window.
+	glm53OneMillion := p.providerID() == "glm" &&
+		(model == "glm-5.3" || strings.EqualFold(model, "glm-5.3[1m]"))
+	if glm53OneMillion {
+		claudeModel = "glm-5.3[1m]"
+	}
 	// Moonshot exposes a Claude Code compatibility name for K3.
 	if p.providerID() == "kimi" && p.planID() == "standard" && model == "kimi-k3" {
 		claudeModel = "kimi-k3[1m]"
@@ -84,6 +90,10 @@ func claudeLaunchSettings(p *Provider, model, url, key string) (string, map[stri
 		"CLAUDE_CODE_SUBAGENT_MODEL",
 	} {
 		env[name] = claudeModel
+	}
+	if glm53OneMillion {
+		env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = "1000000"
+		return claudeModel, env
 	}
 	if p.providerID() != "kimi" || (p.planID() != "standard" && p.planID() != "coding") {
 		return claudeModel, env
