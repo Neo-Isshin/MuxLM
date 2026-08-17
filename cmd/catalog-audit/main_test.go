@@ -148,6 +148,29 @@ func TestKimiCodingAndCodingPlanExceptionsDoNotBecomeCandidates(t *testing.T) {
 	}
 }
 
+func TestBailianTokenPlanModelDoesNotBecomePayGoCandidate(t *testing.T) {
+	rule := ruleForAlias(t, "q")
+	catalog := muxCatalog{
+		Providers: []muxProvider{{
+			Alias:  "q",
+			Models: []muxModel{{ID: "qwen3.7-plus"}},
+		}},
+	}
+	upstream := map[string]upstreamProvider{
+		rule.Upstream: {
+			Models: map[string]upstreamModel{
+				"qwen3.7-plus":  toolModel(),
+				"qwen3.8-max":   toolModel(),
+				"qwen3.7-flash": toolModel(),
+			},
+		},
+	}
+	candidates := auditCatalog(catalog, upstream).Routes[0].Candidates
+	if len(candidates) != 1 || candidates[0].ID != "qwen3.7-flash" {
+		t.Fatalf("pay-as-you-go candidates = %#v", candidates)
+	}
+}
+
 func TestRunReadsLocalFixturesAndHonorsStrictMode(t *testing.T) {
 	temp := t.TempDir()
 	catalogPath := filepath.Join(temp, "catalog.json")

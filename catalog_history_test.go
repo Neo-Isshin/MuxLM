@@ -145,9 +145,17 @@ func TestRetiredKimiVersionAliasesRemainTombstoned(t *testing.T) {
 	}
 }
 
-func TestCatalogGrowthFromPreviousRevisionIsAccepted(t *testing.T) {
-	previous := cloneCatalog(t, &embeddedCatalog)
-	previous.Revision = "2026-07-24.1"
+func TestCatalogGrowthFromPreviousRevisionsIsAccepted(t *testing.T) {
+	july30 := catalogAtJuly30(t)
+	if err := validateCatalog(july30); err != nil {
+		t.Fatalf("July 30 catalog fixture is invalid: %v", err)
+	}
+	if err := validateCatalogEvolution(july30, &embeddedCatalog); err != nil {
+		t.Fatalf("July 30 release cannot accept the expanded catalog: %v", err)
+	}
+
+	july24 := cloneCatalog(t, july30)
+	july24.Revision = "2026-07-24.1"
 	for _, tag := range []string{
 		"glm5v", "glm5", "glm47fx", "glm47f",
 		"glmc5v", "glmc51", "glmc5t", "glmc47",
@@ -157,14 +165,40 @@ func TestCatalogGrowthFromPreviousRevisionIsAccepted(t *testing.T) {
 		"q36", "q36f", "q35f",
 		"oro5", "oro5f", "orq37f",
 	} {
+		removeModelWithTag(t, july24, tag)
+	}
+	if err := validateCatalog(july24); err != nil {
+		t.Fatalf("July 24 catalog fixture is invalid: %v", err)
+	}
+	if err := validateCatalogEvolution(july24, &embeddedCatalog); err != nil {
+		t.Fatalf("July 24 release cannot accept the expanded catalog: %v", err)
+	}
+}
+
+func catalogAtJuly30(t *testing.T) *CatalogFile {
+	t.Helper()
+	previous := cloneCatalog(t, &embeddedCatalog)
+	previous.Revision = "2026-07-30.1"
+	for _, tag := range []string{
+		"glmc53", "nvn35l",
+		"ordsv4p", "ordsv4f", "orq38m", "orq3827", "orq3824t", "orgem37f", "orn35l",
+	} {
 		removeModelWithTag(t, previous, tag)
 	}
-	if err := validateCatalog(previous); err != nil {
-		t.Fatalf("previous catalog fixture is invalid: %v", err)
+	for providerIndex := range previous.Providers {
+		provider := &previous.Providers[providerIndex]
+		for modelIndex := range provider.Models {
+			model := &provider.Models[modelIndex]
+			switch {
+			case provider.Alias == "glmc" && model.ID == "glm-5.2":
+				model.Tag = ""
+				model.Latest = true
+			case provider.Alias == "nv" && model.ID == "openai/gpt-oss-120b":
+				model.Latest = true
+			}
+		}
 	}
-	if err := validateCatalogEvolution(previous, &embeddedCatalog); err != nil {
-		t.Fatalf("previous release cannot accept the expanded catalog: %v", err)
-	}
+	return previous
 }
 
 func removeModelWithTag(t *testing.T, catalog *CatalogFile, tag string) {

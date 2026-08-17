@@ -116,6 +116,9 @@ var sourceRules = []sourceRule{
 		Alias:    "q",
 		Upstream: "alibaba-cn",
 		Prefixes: []string{"qwen"},
+		Ignore: map[string]string{
+			"qwen3.8-max": "Alibaba documents qwen3.8-max-preview as Token Plan-only, not pay-as-you-go",
+		},
 		KnownMissing: map[string]string{
 			"qwen3-coder-next": "verified in Alibaba documentation but absent from models.dev pay-as-you-go data",
 		},
@@ -138,7 +141,7 @@ var sourceRules = []sourceRule{
 		Upstream: "openrouter",
 		Prefixes: []string{
 			"anthropic/", "openai/", "qwen/", "z-ai/",
-			"moonshotai/", "minimax/", "deepseek/", "google/",
+			"moonshotai/", "minimax/", "deepseek/", "google/", "nvidia/",
 		},
 	},
 }

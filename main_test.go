@@ -105,11 +105,13 @@ func TestEveryProviderAliasUsesItsLatestModel(t *testing.T) {
 	}
 
 	for alias, modelID := range map[string]string{
-		"glm": "glm-5.2",
-		"k":   "kimi-k3",
-		"m":   "MiniMax-M3",
-		"ds":  "deepseek-v4-pro",
-		"q":   "qwen3.7-plus",
+		"glm":  "glm-5.2",
+		"glmc": "glm-5.3",
+		"k":    "kimi-k3",
+		"m":    "MiniMax-M3",
+		"nv":   "nvidia/nemotron-3.5-lightning-30b-a3b",
+		"ds":   "deepseek-v4-pro",
+		"q":    "qwen3.7-plus",
 	} {
 		if got := idx[alias].Model.ID; got != modelID {
 			t.Fatalf("%s default = %q, want %q", alias, got, modelID)
@@ -197,7 +199,11 @@ func TestOpenRouterCatalogUsesCuratedToolCapableModels(t *testing.T) {
 	if openrouter.Model.ID != "anthropic/claude-sonnet-5" {
 		t.Fatalf("OpenRouter latest model = %q", openrouter.Model.ID)
 	}
-	for _, alias := range []string{"ors5", "oro5", "oro5f", "oro48", "ors46", "org56", "orq37f", "orqcn", "orglm52", "ork3", "orm3"} {
+	for _, alias := range []string{
+		"ors5", "oro5", "oro5f", "oro48", "ors46", "org56",
+		"ordsv4p", "ordsv4f", "orq38m", "orq3827", "orq3824t", "orgem37f", "orn35l",
+		"orq37f", "orqcn", "orglm52", "ork3", "orm3",
+	} {
 		resolved, ok := idx[alias]
 		if !ok || resolved.Prov.providerID() != "openrouter" {
 			t.Fatalf("OpenRouter model alias %q = %#v", alias, resolved)
@@ -292,6 +298,9 @@ func TestOfficialShortNamesAndScopedRelayModels(t *testing.T) {
 	if global := idx["k27"]; global.Prov.Alias != "k" || global.Model.ID != "kimi-k2.7-code" {
 		t.Fatalf("k27 did not use Kimi official: %#v", global)
 	}
+	if global := idx["n35l"]; global.Prov.Alias != "nv" || global.Model.ID != "nvidia/nemotron-3.5-lightning-30b-a3b" {
+		t.Fatalf("n35l did not use NVIDIA official: %#v", global)
+	}
 
 	siliconflow := idx["sf"].Prov
 	hosted, ok := resolveProviderModel(siliconflow, "k27")
@@ -321,6 +330,10 @@ func TestOfficialShortNamesAndScopedRelayModels(t *testing.T) {
 	relayM3, ok := resolveProviderModel(openrouter, "m3")
 	if !ok || relayM3.Model.ID != "minimax/minimax-m3" {
 		t.Fatalf("or m3 = %#v, %v", relayM3, ok)
+	}
+	relayN35L, ok := resolveProviderModel(openrouter, "n35l")
+	if !ok || relayN35L.Model.ID != "nvidia/nemotron-3.5-lightning" {
+		t.Fatalf("or n35l = %#v, %v", relayN35L, ok)
 	}
 	if got := strings.Join(modelShortcutExamples(siliconflow), ","); !strings.Contains(got, "sf k27") {
 		t.Fatalf("SiliconFlow shortcuts = %q", got)
