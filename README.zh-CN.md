@@ -174,7 +174,7 @@ Catalog 更新并非只有"新增":新 revision 可以增加 provider/model,也�
 
 ```bash
 go test ./...
-go build -ldflags "-X main.appVersion=v2.4.0" -o muxlm .
+go build -ldflags "-X main.appVersion=v2.5.0" -o muxlm .
 ```
 
 采用 [MIT License](LICENSE)。种子 catalog 含有社区来源数据,详见[第三方声明](THIRD_PARTY_NOTICES.md)。
